@@ -29,12 +29,12 @@ ARG FABRIC_VERSION=2.5.4
 ARG FABRIC_CRYPTOGEN_VERSION=${FABRIC_VERSION}
 
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /tmp/hyperledger/fabric \
-    && cd /tmp/hyperledger/fabric \
-    && curl -sSL https://github.com/hyperledger/fabric/releases/download/v${FABRIC_VERSION}/hyperledger-fabric-linux-${TARGETARCH}-${FABRIC_VERSION}.tar.gz | tar xz \
-    && if [ "${FABRIC_VERSION}" != "${FABRIC_CRYPTOGEN_VERSION}" ]; then \
-           curl -sSL https://github.com/hyperledger/fabric/releases/download/v${FABRIC_CRYPTOGEN_VERSION}/hyperledger-fabric-linux-${TARGETARCH}-${FABRIC_CRYPTOGEN_VERSION}.tar.gz | tar xz cryptogen; \
-       fi
+  && mkdir -p /tmp/hyperledger/fabric \
+  && cd /tmp/hyperledger/fabric \
+  && curl -sSL https://github.com/hyperledger/fabric/releases/download/v${FABRIC_VERSION}/hyperledger-fabric-linux-${TARGETARCH}-${FABRIC_VERSION}.tar.gz | tar xz \
+  && if [ "${FABRIC_VERSION}" != "${FABRIC_CRYPTOGEN_VERSION}" ]; then \
+  curl -sSL https://github.com/hyperledger/fabric/releases/download/v${FABRIC_CRYPTOGEN_VERSION}/hyperledger-fabric-linux-${TARGETARCH}-${FABRIC_CRYPTOGEN_VERSION}.tar.gz | tar xz cryptogen; \
+  fi
 #
 # FNB image
 #
@@ -53,16 +53,16 @@ RUN ln -s /var/lib/fabric-network-builder/network.py /usr/bin/fabric-network-bui
 
 ENV PATH=$PATH:/var/lib/fabric-network-builder/release/linux/bin
 
-ADD requirements.txt /var/lib/fabric-network-builder/
+COPY requirements.txt /var/lib/fabric-network-builder/
 RUN pip install -r /var/lib/fabric-network-builder/requirements.txt
 
-ADD byfn.sh /var/lib/fabric-network-builder/
-ADD template /var/lib/fabric-network-builder/template
-ADD network.py /var/lib/fabric-network-builder/
+COPY byfn.sh /var/lib/fabric-network-builder/
+COPY template /var/lib/fabric-network-builder/template
+COPY network.py /var/lib/fabric-network-builder/
 
 RUN chmod -R +x \
-    /var/lib/fabric-network-builder/network.py \
-    /var/lib/fabric-network-builder/byfn.sh
+  /var/lib/fabric-network-builder/network.py \
+  /var/lib/fabric-network-builder/byfn.sh
 
 COPY --from=fabric-artifacts-builder /tmp/hyperledger/fabric/bin/* /var/lib/fabric-network-builder/release/linux/bin/
 COPY --from=byfn-vars-builder /tmp/byfn-vars.sh /var/lib/fabric-network-builder/

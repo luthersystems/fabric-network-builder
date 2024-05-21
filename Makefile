@@ -1,4 +1,4 @@
-PROJECT_REL_DIR=./../
+PROJECT_REL_DIR=.
 include ${PROJECT_REL_DIR}/common.mk
 
 DOCKER_IMAGE=luthersystems/fabric-network-builder
