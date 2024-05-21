@@ -1,0 +1,8 @@
+build
+
+# files that are generated as part of the network-builder template
+docker-compose-e2e.yaml  # generated docker compose file
+crypto-config/
+channel-artifacts/*.tx
+channel-artifacts/*.block
+
