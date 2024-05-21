@@ -1,0 +1,132 @@
+client:
+  #organization: org1
+  logging:
+    level: error
+  discovery:
+    timeout:
+      connection: 10s
+      response: 10s
+  peer:
+    timeout:
+      connection: 10s
+      # this timeout must be set to be longer than the longest execution time
+      # of any query/transaction. after this time, the peer is assumed to be
+      # down rather than working.
+      response: 10s
+      discovery:
+        greylistExpiry: 10s
+  eventService:
+    timeout:
+      registrationResponse: 15s
+  orderer:
+    timeout:
+      connection: 10s
+      response: 10s
+  global:
+    timeout:
+      query: 3m
+      execute: 3m
+      resmgmt: 3m
+    cache:
+      connectionIdle: 2m
+      eventServiceIdle: 2m
+      channelConfig: 2m
+      channelMembership: 2m
+      discovery: 2m
+      selection: 2m
+  cryptoconfig:
+    path: "/tmp/fabric/crypto-config"
+  BCCSP:
+    security:
+     enabled: true
+     default:
+      provider: "SW"
+     hashAlgorithm: "SHA2"
+     softVerify: true
+     level: 256
+  credentialStore:
+    path: "/tmp/state-store"
+    cryptoStore:
+      path: /tmp/msp
+  tlsCerts:
+    client:
+      key:
+        path: "/tmp/fabric/crypto-config/peerOrganizations/${ORG}.${DOMAIN_NAME}/users/Admin@${ORG}.${DOMAIN_NAME}/tls/client.key"
+      cert:
+        path: "/tmp/fabric/crypto-config/peerOrganizations/${ORG}.${DOMAIN_NAME}/users/Admin@${ORG}.${DOMAIN_NAME}/tls/client.crt"
+
+channels:
+  luther:
+    peers:{% for i in ORG_INDICES %}{% for j in PEER_INDICES %}
+      peer{{j}}.org{{i}}.{{DOMAIN_NAME}}:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true{% endfor %}{% endfor %}
+      policies:
+      queryChannelConfig:
+        minResponses: 1
+        maxTargets: 1
+        retryOpts:
+          attempts: 5
+          initialBackoff: 500ms
+          maxBackoff: 5s
+          backoffFactor: 2.0
+
+organizations:{% for i in ORG_INDICES %}
+  org{{i}}:
+    mspid: Org{{i}}MSP
+    cryptoPath:  peerOrganizations/org{{i}}.{{DOMAIN_NAME}}/users/{username}@org{{i}}.{{DOMAIN_NAME}}/msp
+    peers:{% for j in PEER_INDICES %}
+      - peer{{j}}.org{{i}}.{{DOMAIN_NAME}}{% endfor %}
+    certificateAuthorities:
+      - ca.org{{i}}.{{DOMAIN_NAME}}{% endfor %}
+  ordererorg:
+    mspID: "OrdererOrg"
+    cryptoPath: ordererOrganizations/{{DOMAIN_NAME}}/users/{username}@{{DOMAIN_NAME}}/msp
+
+orderers:
+  _default:
+    grpcOptions:
+      keep-alive-time: 30s
+      keep-alive-timeout: 20s
+      keep-alive-permit: false
+      fail-fast: true
+      allow-insecure: false{% for i in ORDERER_INDICES %}
+  orderer{{i}}.{{DOMAIN_NAME}}:
+    url: orderer{{i}}.{{DOMAIN_NAME}}:7050
+    grpcOptions:
+      ssl-target-name-override: orderer{{i}}.{{DOMAIN_NAME}}
+    tlsCACerts:
+      path: "/tmp/fabric/crypto-config/ordererOrganizations/{{DOMAIN_NAME}}/tlsca/tlsca.{{DOMAIN_NAME}}-cert.pem"{% endfor %}
+
+peers:
+  _default:
+    grpcOptions:
+      keep-alive-time: 30s
+      keep-alive-timeout: 20s
+      keep-alive-permit: false
+      fail-fast: true
+      allow-insecure: false{% for i in ORG_INDICES %}{% for j in PEER_INDICES %}
+  peer{{j}}.org{{i}}.{{DOMAIN_NAME}}:
+    url: peer{{j}}.org{{i}}.{{DOMAIN_NAME}}:7051
+    eventUrl: peer{{j}}.org{{i}}.{{DOMAIN_NAME}}:7053
+    grpcOptions:
+      ssl-target-name-override: peer{{j}}.org{{i}}.{{DOMAIN_NAME}}
+    tlsCACerts:
+      path: "/tmp/fabric/crypto-config/peerOrganizations/org{{i}}.{{DOMAIN_NAME}}/tlsca/tlsca.org{{i}}.{{DOMAIN_NAME}}-cert.pem"{% endfor %}{% endfor %}
+
+certificateAuthorities:{% for i in ORG_INDICES %}
+ ca.org{{i}}.{{DOMAIN_NAME}}:
+   url: https://ca.org{{i}}.{{DOMAIN_NAME}}:7054
+   tlsCACerts:
+    path: "/tmp/fabric/crypto-config/peerOrganizations/org{{i}}.{{DOMAIN_NAME}}/ca/ca.org{{i}}.{{DOMAIN_NAME}}-cert.pem"
+    client:
+      key:
+        path: "/tmp/fabric/crypto-config/peerOrganizations/org{{i}}.{{DOMAIN_NAME}}/users/Admin@org{{i}}.{{DOMAIN_NAME}}/tls/client.key"
+      cert:
+        path: "/tmp/fabric/crypto-config/peerOrganizations/org{{i}}.{{DOMAIN_NAME}}/users/Admin@org{{i}}.{{DOMAIN_NAME}}/tls/client.crt"
+   registrar:
+     enrollId: admin
+     enrollSecret: adminpw
+   caName: ca.org{{i}}.{{DOMAIN_NAME}}{% endfor %}

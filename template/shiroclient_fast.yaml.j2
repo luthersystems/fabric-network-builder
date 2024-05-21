@@ -1,0 +1,13 @@
+phylum:
+  version: latest
+chaincode:
+  id: {{CC_NAME}}
+channel:
+  id: luther
+  min-endorsers: {{MIN_ENDORSERS}}
+enroll:
+  org: org1
+fabric:
+  client-config: fabric-client_fast.yaml
+peer:
+  username: Admin

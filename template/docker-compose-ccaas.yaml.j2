@@ -1,0 +1,18 @@
+version: '3.7'
+services:
+{%- for cc in chaincodes %}
+  {{ cc.service_name }}:
+    image: luthersystems/substrate:$CHAINCODE_VERSION
+    command: ["${{ cc.ccid_env_var }}"]
+    ports:
+      - "{{ cc.port }}:8080"
+    networks:
+      - byfn
+    environment:
+      CHAINCODE_OTLP_TRACER_ENDPOINT:
+      CHAINCODE_LOG_LEVEL:
+{% endfor -%}
+
+networks:
+  byfn:
+    name: byfn

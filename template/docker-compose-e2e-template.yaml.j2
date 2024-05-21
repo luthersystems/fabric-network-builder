@@ -1,0 +1,66 @@
+# Copyright IBM Corp. All Rights Reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+version: '2'
+
+volumes:
+  {%- for i in ORDERER_INDICES %}
+  orderer{{i}}.{{DOMAIN_NAME}}:
+  {%- endfor %}
+  {%- for i in ORG_INDICES %}
+  {%- for j in PEER_INDICES %}
+  peer{{j}}.org{{i}}.{{DOMAIN_NAME}}:
+  {%- endfor %}
+  ca.org{{i}}.{{DOMAIN_NAME}}:
+  {%- endfor %}
+
+networks:
+  byfn:
+
+services:
+  {%- for i,p in ZIP_ORG_INDICES_CA_PORTS %}
+  ca.org{{i}}.{{DOMAIN_NAME}}:
+    image: $IMAGE_NS/fabric-ca:$CA_IMAGE_TAG
+    environment:
+      - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
+      - FABRIC_CA_SERVER_CA_NAME=ca-org{{i}}
+      - FABRIC_CA_SERVER_TLS_ENABLED=true
+      - FABRIC_CA_SERVER_TLS_CERTFILE=/etc/hyperledger/fabric-ca-server-config/ca.org{{i}}.{{DOMAIN_NAME}}-cert.pem
+      - FABRIC_CA_SERVER_TLS_KEYFILE=/etc/hyperledger/fabric-ca-server-config/CA{{i}}_PRIVATE_KEY
+    ports:
+      - {{p}}:7054
+    command: sh -c 'fabric-ca-server start --ca.certfile /etc/hyperledger/fabric-ca-server-config/ca.org{{i}}.{{DOMAIN_NAME}}-cert.pem --ca.keyfile /etc/hyperledger/fabric-ca-server-config/CA{{i}}_PRIVATE_KEY -b admin:adminpw -d'
+    volumes:
+      - ./crypto-config/peerOrganizations/org{{i}}.{{DOMAIN_NAME}}/ca/:/etc/hyperledger/fabric-ca-server-config
+    container_name: ca_peerOrg{{i}}
+    networks:
+      - byfn
+  {%- endfor %}
+  {%- for i in ORDERER_INDICES %}
+
+  orderer{{i}}.{{DOMAIN_NAME}}:
+    extends:
+      file:   base/docker-compose-base.yaml
+      service: orderer{{i}}.{{DOMAIN_NAME}}
+    container_name: orderer{{i}}.{{DOMAIN_NAME}}
+    environment:
+      - FABRIC_LOGGING_SPEC
+    networks:
+      - byfn
+  {%- endfor %}
+  {%- for i in ORG_INDICES %}
+  {%- for j in PEER_INDICES %}
+
+  peer{{j}}.org{{i}}.{{DOMAIN_NAME}}:
+    container_name: peer{{j}}.org{{i}}.{{DOMAIN_NAME}}
+    extends:
+      file:  base/docker-compose-base.yaml
+      service: peer{{j}}.org{{i}}.{{DOMAIN_NAME}}
+    environment:
+      - FABRIC_LOGGING_SPEC
+    networks:
+      - byfn
+  {%- endfor %}
+  {%- endfor %}
