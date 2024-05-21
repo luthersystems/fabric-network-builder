@@ -1,0 +1,2 @@
+fabric/2.2.0-hcs/fabric-release-linux-amd64-2.2.0-hcs.tar.gz filter=lfs diff=lfs merge=lfs -text
+fabric/2.2.0/fabric-release-linux-amd64-2.2.0.tar.gz filter=lfs diff=lfs merge=lfs -text
