@@ -14,6 +14,8 @@ PACKAGE=${PROJECT_PATH}
 FQ_DOCKER_IMAGE ?= luthersystems/$(2)
 FABRIC_IMAGE_TAG=${FABRIC_VERSION}
 
+TAG_SUFFIX ?= -amd64
+
 DOCKER_IN_DOCKER_MOUNT?=-v /var/run/docker.sock:/var/run/docker.sock
 
 ifeq ($(OS),Windows_NT)

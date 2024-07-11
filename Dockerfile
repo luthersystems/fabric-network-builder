@@ -1,7 +1,7 @@
 #
 # byfn-vars builder
 #
-FROM debian:bullseye as byfn-vars-builder
+FROM debian:bullseye AS byfn-vars-builder
 
 ARG BASEIMAGETAG=0.4.20
 ARG IMAGETAG=2.5.4
@@ -22,29 +22,37 @@ RUN envsubst < /tmp/byfn-vars.sh.template > /tmp/byfn-vars.sh
 #
 # fabric artifacts builder
 #
-FROM --platform=linux/$TARGETARCH debian:bullseye as fabric-artifacts-builder
-ARG TARGETARCH
+FROM debian:bullseye AS fabric-artifacts-builder
 
 ARG FABRIC_VERSION=2.5.4
 ARG FABRIC_CRYPTOGEN_VERSION=${FABRIC_VERSION}
 
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/* \
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Function to map uname -m to amd64 or arm64
+RUN ARCH=$(uname -m) && \
+    case "$ARCH" in \
+      x86_64) ARCH="amd64" ;; \
+      aarch64) ARCH="arm64" ;; \
+      arm64) ARCH="arm64" ;; \
+      *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
+    esac && \
+    apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /tmp/hyperledger/fabric \
   && cd /tmp/hyperledger/fabric \
-  && curl -sSL https://github.com/hyperledger/fabric/releases/download/v${FABRIC_VERSION}/hyperledger-fabric-linux-${TARGETARCH}-${FABRIC_VERSION}.tar.gz | tar xz \
+  && curl -sSL "https://github.com/hyperledger/fabric/releases/download/v${FABRIC_VERSION}/hyperledger-fabric-linux-${ARCH}-${FABRIC_VERSION}.tar.gz" | tar xz \
   && if [ "${FABRIC_VERSION}" != "${FABRIC_CRYPTOGEN_VERSION}" ]; then \
-  curl -sSL https://github.com/hyperledger/fabric/releases/download/v${FABRIC_CRYPTOGEN_VERSION}/hyperledger-fabric-linux-${TARGETARCH}-${FABRIC_CRYPTOGEN_VERSION}.tar.gz | tar xz cryptogen; \
+  curl -sSL "https://github.com/hyperledger/fabric/releases/download/v${FABRIC_CRYPTOGEN_VERSION}/hyperledger-fabric-linux-${ARCH}-${FABRIC_CRYPTOGEN_VERSION}.tar.gz" | tar xz cryptogen; \
   fi
-#
+
 # FNB image
 #
-FROM --platform=linux/$TARGETARCH python:3.12-bullseye
-ARG TARGETARCH
+FROM python:3.12-bullseye
 
 RUN apt-get update && apt-get install --no-install-recommends -y zip rsync gettext-base docker.io && rm -rf /var/lib/apt/lists/*
 
 ARG COMPOSE_VER=2.20.0
-RUN curl -L "https://github.com/docker/compose/releases/download/v${COMPOSE_VER}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose
+RUN curl -sSL "https://github.com/docker/compose/releases/download/v${COMPOSE_VER}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose
 
 RUN mkdir /network
 WORKDIR /network
@@ -54,7 +62,7 @@ RUN ln -s /var/lib/fabric-network-builder/network.py /usr/bin/fabric-network-bui
 ENV PATH=$PATH:/var/lib/fabric-network-builder/release/linux/bin
 
 COPY requirements.txt /var/lib/fabric-network-builder/
-RUN pip install -r /var/lib/fabric-network-builder/requirements.txt
+RUN pip install --no-cache-dir -r /var/lib/fabric-network-builder/requirements.txt
 
 COPY byfn.sh /var/lib/fabric-network-builder/
 COPY template /var/lib/fabric-network-builder/template

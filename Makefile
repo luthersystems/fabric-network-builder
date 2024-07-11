@@ -10,7 +10,8 @@ FABRIC_BASE_IMAGE_TAG=$(FABRIC_BASE_VERSION)
 FABRIC_CA_IMAGE_TAG=$(FABRIC_CA_VERSION)
 FABRIC_IMAGE_NS=hyperledger
 
-DOCKER_IMAGE_TARGET=build/images/${DOCKER_IMAGE}/${VERSION}/.dummy
+DOCKER_IMAGE_TARGET=build/images/${DOCKER_IMAGE}/${BUILD_VERSION}${TAG_SUFFIX}/.dummy
+DOCKER_MANIFEST_TARGET=build/manifest/${DOCKER_IMAGE}/${BUILD_VERSION}/.dummy
 
 .PHONY: default
 default: docker-build
@@ -26,11 +27,11 @@ docker-build: ${DOCKER_IMAGE_TARGET}
 
 .PHONY: docker-push
 docker-push: docker-build
-	docker push ${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION}
-	docker push ${DOCKER_IMAGE_PUBLIC_FQN}:latest
+	${DOCKER} push ${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION}${TAG_SUFFIX}
+	${DOCKER} push ${DOCKER_IMAGE_PUBLIC_FQN}:latest
 
 ${DOCKER_IMAGE_TARGET}: Dockerfile Makefile
-	docker build \
+	${DOCKER} build \
 		--build-arg FABRIC_VERSION=${FABRIC_VERSION} \
 		--build-arg FABRIC_CRYPTOGEN_VERSION=${FABRIC_CRYPTOGEN_VERSION} \
 		--build-arg BASEIMAGETAG=${FABRIC_BASE_IMAGE_TAG} \
@@ -38,6 +39,22 @@ ${DOCKER_IMAGE_TARGET}: Dockerfile Makefile
 		--build-arg CAIMAGETAG=${FABRIC_CA_IMAGE_TAG} \
 		--build-arg IMAGENS=${FABRIC_IMAGE_NS} \
 		-t ${DOCKER_IMAGE} .
-	docker tag ${DOCKER_IMAGE}:latest ${DOCKER_IMAGE}:${BUILD_VERSION}
-	mkdir -p $(dir $@)
-	touch $@
+	${DOCKER} tag ${DOCKER_IMAGE}:latest ${DOCKER_IMAGE}:${BUILD_VERSION}${TAG_SUFFIX}
+	${MKDIR_P} $(dir $@)
+	${TOUCH} $@
+
+.PHONY: push-manifests
+push-manifests: ${DOCKER_MANIFEST_TARGET}
+	@
+
+${DOCKER_MANIFEST_TARGET}:
+	${DOCKER} buildx imagetools create \
+		--tag ${DOCKER_IMAGE_PUBLIC_FQN}:latest \
+		${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION}-arm64 \
+		${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION}-amd64
+	${DOCKER} buildx imagetools create \
+		--tag ${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION} \
+		${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION}-arm64 \
+		${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION}-amd64
+	${MKDIR_P} $(dir $@)
+	${TOUCH} $@
