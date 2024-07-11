@@ -5,7 +5,7 @@ on:
       - "*"
 jobs:
   build-push-docker:
-    name: ${{ matrix.image }} - ${{ matrix.arch }} docker build push
+    name: ${{ matrix.arch }} - docker build push
     runs-on: ${{ fromJSON('{"arm64":"buildjet-2vcpu-ubuntu-2204-arm","amd64":"ubuntu-22.04"}')[matrix.arch] }}
     strategy:
       matrix:
