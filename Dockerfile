@@ -49,7 +49,16 @@ RUN ARCH=$(uname -m) && \
 #
 FROM python:3.12-bullseye
 
-RUN apt-get update && apt-get install --no-install-recommends -y zip rsync gettext-base docker.io && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install --no-install-recommends -y zip rsync gettext-base curl && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI (static binary) - version 27.3.1 supports API 1.44+
+# This replaces the old docker.io package which had version 1.41
+RUN ARCH=$(dpkg --print-architecture | sed 's/arm64/aarch64/; s/amd64/x86_64/') && \
+    curl -fsSL https://download.docker.com/linux/static/stable/${ARCH}/docker-27.3.1.tgz | tar -xz -C /tmp && \
+    mv /tmp/docker/docker /usr/local/bin/docker && \
+    chmod +x /usr/local/bin/docker && \
+    rm -rf /tmp/docker && \
+    docker --version
 
 ARG COMPOSE_VER=2.20.0
 RUN curl -sSL "https://github.com/docker/compose/releases/download/v${COMPOSE_VER}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose
