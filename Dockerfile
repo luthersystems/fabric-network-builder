@@ -60,7 +60,7 @@ RUN ARCH=$(dpkg --print-architecture | sed 's/arm64/aarch64/; s/amd64/x86_64/') 
     rm -rf /tmp/docker && \
     docker --version
 
-ARG COMPOSE_VER=2.20.0
+ARG COMPOSE_VER=2.40.3
 RUN curl -sSL "https://github.com/docker/compose/releases/download/v${COMPOSE_VER}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose
 
 RUN mkdir /network
