@@ -6,14 +6,14 @@ on:
 jobs:
   build-push-docker:
     name: ${{ matrix.arch }} - docker build push
-    runs-on: ${{ fromJSON('{"arm64":"buildjet-2vcpu-ubuntu-2204-arm","amd64":"ubuntu-22.04"}')[matrix.arch] }}
+    runs-on: ${{ fromJSON('{"arm64":"2vcpu-ubuntu-2204-arm","amd64":"ubuntu-22.04"}')[matrix.arch] }}
     strategy:
       matrix:
         arch:
           - amd64
           - arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
       - name: Configure DockerHub
@@ -28,7 +28,7 @@ jobs:
     needs:
       - build-push-docker
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           lfs: true
       - name: Configure DockerHub
