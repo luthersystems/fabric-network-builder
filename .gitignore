@@ -1,4 +1,6 @@
 build
+.tmp/
+__pycache__/
 
 # files that are generated as part of the network-builder template
 docker-compose-e2e.yaml  # generated docker compose file

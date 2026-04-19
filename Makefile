@@ -21,6 +21,10 @@ default: docker-build
 clean:
 	rm -fr build
 
+.PHONY: test
+test:
+	python3 -m unittest discover -s tests -v
+
 .PHONY: docker-build
 docker-build: ${DOCKER_IMAGE_TARGET}
 	@

@@ -335,12 +335,31 @@ class Network(object):
         if args.ccaas:
             byfn_cmd.append('-x')
         run(byfn_cmd, chdir=self.destination_path, setenv=self._compose_setenv())
-        self.generate_chaincodes_compose(args.cc_variants.split())
+        self.generate_chaincodes_compose(args.cc_variants.split(), args.image_override)
 
-    def generate_chaincodes_compose(self, chaincode_names):
+    DEFAULT_CCAAS_IMAGE = 'luthersystems/substrate:$CHAINCODE_VERSION'
+
+    @staticmethod
+    def _parse_image_overrides(pairs, valid_names):
+        valid = set(valid_names)
+        out = {}
+        for p in pairs:
+            name, sep, image = p.partition('=')
+            if not sep or not name or not image:
+                raise SystemExit(
+                    f"--image-override expects NAME=IMAGE, got {p!r}")
+            if name not in valid:
+                raise SystemExit(
+                    f"--image-override NAME {name!r} is not in cc_variants "
+                    f"({sorted(valid)})")
+            out[name] = image
+        return out
+
+    def generate_chaincodes_compose(self, chaincode_names, image_overrides=None):
         if len(chaincode_names) == 0:
             print("skipping ccaas compose file...")
             return
+        overrides = self._parse_image_overrides(image_overrides or [], chaincode_names)
         # Define the base port for the external chaincodes
         base_port = 9080
 
@@ -350,7 +369,8 @@ class Network(object):
             chaincodes_data.append({
                 'service_name': f"{cc_name}-peer0",
                 'ccid_env_var': f"CCID_{cc_name.upper()}",
-                'port': base_port + idx
+                'port': base_port + idx,
+                'image': overrides.get(cc_name, self.DEFAULT_CCAAS_IMAGE),
             })
 
         # Load and render the Jinja template
@@ -506,6 +526,11 @@ class Network(object):
         parser_generatecc = subparsers.add_parser('generatecc', help='generate chaincode archives (.tar.gz)')
         parser_generatecc.add_argument('--ccaas', help='use chaincode as a service',
                                     action='store_true')
+        parser_generatecc.add_argument('--image-override',
+                                    action='append', default=[], dest='image_override',
+                                    metavar='NAME=IMAGE',
+                                    help='override image for a CCaaS service (repeatable); '
+                                         'NAME must match a chaincode in cc_variants')
         parser_generatecc.add_argument('cc_name', help='chaincode name used to invoke its methods')
         parser_generatecc.add_argument('cc_version', help='deployment version')
         parser_generatecc.add_argument('cc_variants', help='deployment variants')
