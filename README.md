@@ -143,6 +143,27 @@ container.
 docker exec -it cli bash ./scripts/install.sh mychannel mycc v1.0 chaincode.car
 ```
 
+## Chaincode as a Service (CCaaS)
+
+`generatecc --ccaas` packages each chaincode variant as a CCaaS stub and emits
+`docker-compose-ccaas.yaml` with one service per variant. Every service runs
+the `luthersystems/substrate:$CHAINCODE_VERSION` image by default (substrate
+phyla use this path).
+
+To run a non-substrate CCaaS container alongside substrate phyla, pass
+`--image-override NAME=IMAGE` (repeatable). `NAME` must match a variant listed
+in `cc_variants`; an unknown name exits with a non-zero status.
+
+```bash
+fabric-network-builder generatecc --ccaas \
+    --image-override external=luthersystems/externalcc:$CHAINCODE_VERSION \
+    mycc v1.0 "a b external" /path/to/chaincode.car
+```
+
+With that invocation the generated compose file assigns
+`luthersystems/externalcc:$CHAINCODE_VERSION` to `external-peer0` and leaves
+`a-peer0`/`b-peer0` on the substrate default.
+
 ## Network teardown
 
 When finished using the network use byfn.sh to stop/remove containers and
