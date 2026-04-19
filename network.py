@@ -327,6 +327,8 @@ class Network(object):
             cc_variants: string
             cc_path: string
         '''
+        if args.image_override and not args.ccaas:
+            raise SystemExit("--image-override requires --ccaas")
         byfn_cmd = self._byfn_cmd('generatecc')
         append_opt(byfn_cmd, '-C', args.cc_name)
         append_opt(byfn_cmd, '-V', args.cc_version)
@@ -352,6 +354,9 @@ class Network(object):
                 raise SystemExit(
                     f"--image-override NAME {name!r} is not in cc_variants "
                     f"({sorted(valid)})")
+            if name in out:
+                raise SystemExit(
+                    f"--image-override NAME {name!r} specified more than once")
             out[name] = image
         return out
 
