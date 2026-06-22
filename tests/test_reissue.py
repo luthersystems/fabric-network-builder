@@ -276,6 +276,40 @@ class BuildReissuedTest(unittest.TestCase):
             ku = new.extensions.get_extension_for_class(x509.KeyUsage)
             self.assertTrue(ku.critical)  # critical KeyUsage stays critical
 
+    def test_custom_unrecognized_extension_preserved(self):
+        # fabric-ca embeds enrollment attributes (ABAC) under a custom OID
+        # (1.2.3.4.5.6.7.8.1) that x509 libraries don't recognize. Reissue must
+        # copy ANY extension verbatim - OID, raw bytes and criticality - or a
+        # re-signed identity would silently lose its attributes.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / 'crypto-config'
+            _build_tree(root)
+            e = _entry(discover_leaf_certs(str(root), ['signcert']), 'peer1', 'signcert')
+            ca_cert, ca_key = resolve_ca(e['ca_dir'], e['cert'])
+            old = e['cert']
+            attr_oid = x509.ObjectIdentifier('1.2.3.4.5.6.7.8.1')
+            payload = b'{"attrs":{"hf.Type":"peer","custom.role":"endorser"}}'
+            # forge a leaf carrying both standard exts and the custom one, marked critical
+            forged = (
+                x509.CertificateBuilder()
+                .subject_name(old.subject)
+                .issuer_name(ca_cert.subject)
+                .public_key(old.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(datetime.now(UTC) - timedelta(days=1))
+                .not_valid_after(datetime.now(UTC) + timedelta(days=1))
+                .add_extension(x509.BasicConstraints(ca=False, path_length=None), True)
+                .add_extension(x509.UnrecognizedExtension(attr_oid, payload), True)
+                .sign(ca_key, hashes.SHA256()))
+
+            new = x509.load_pem_x509_certificate(
+                build_reissued_cert(forged, ca_cert, ca_key,
+                                    datetime.now(UTC) + timedelta(days=100)))
+
+            got = new.extensions.get_extension_for_oid(attr_oid)
+            self.assertEqual(got.value.value, payload)  # raw bytes round-trip
+            self.assertTrue(got.critical)               # criticality preserved
+
     def test_tls_san_preserved(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d) / 'crypto-config'
