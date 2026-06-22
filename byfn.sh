@@ -73,20 +73,28 @@ function askProceed () {
   if [ "$FORCE" == "true" ]; then
       return 0
   fi
-  read -p "Continue (y/n)? " ans
-  case "$ans" in
-    y|Y )
-      echo "proceeding ..."
-    ;;
-    n|N )
-      echo "exiting..."
+  # Loop rather than recurse: recursing on invalid input overflowed the stack
+  # (SIGSEGV) when stdin was closed/non-interactive and read returned empty
+  # endlessly. A failed read (EOF) now aborts cleanly instead.
+  while true; do
+    if ! read -p "Continue (y/n)? " ans; then
+      echo "no input on stdin; aborting (use -f to skip this prompt)"
       exit 1
-    ;;
-    * )
-      echo "invalid response"
-      askProceed
-    ;;
-  esac
+    fi
+    case "$ans" in
+      y|Y )
+        echo "proceeding ..."
+        return 0
+      ;;
+      n|N )
+        echo "exiting..."
+        exit 1
+      ;;
+      * )
+        echo "invalid response"
+      ;;
+    esac
+  done
 }
 
 # Obtain CONTAINER_IDS and remove them

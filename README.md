@@ -164,6 +164,38 @@ With that invocation the generated compose file assigns
 `luthersystems/externalcc:$CHAINCODE_VERSION` to `external-peer0` and leaves
 `a-peer0`/`b-peer0` on the substrate default.
 
+## Renewing certificates
+
+`cert_expiries` prints the expiry of every certificate in a crypto-config tree.
+`reissue` renews expiring **leaf** certificates (peer/orderer/user MSP signcerts
+and TLS certs) in place, for cryptogen-style trees where the issuing CA key is
+on the filesystem.
+
+It re-signs each cert with the on-disk CA, reusing the node's existing key and
+copying the original subject and extensions verbatim - only the validity window
+and serial number change. The MSP identity is unchanged, so there is no ledger
+impact and no channel-config update: replace the files and restart the node.
+
+```sh
+# report every leaf cert's expiry and flag the expired ones (no changes)
+fabric-network-builder reissue
+
+# renew every already-expired cert, extending to the CA's expiry
+fabric-network-builder reissue --all-expired
+
+# renew specific nodes (short names match), TLS only, 2 year validity
+fabric-network-builder reissue --node peer0 --node peer1 --type tls --days 730
+
+# preview without writing
+fabric-network-builder reissue --all --dry-run
+```
+
+New leaf validity is always capped at the issuing CA's expiry. `reissue` refuses
+if the CA itself is expired (that needs a CA rotation and channel-config update)
+or if the CA private key is not on the filesystem - fabric-ca issued material
+must be renewed with `fabric-ca-client reenroll`. Replaced certs are backed up
+alongside the original as `*.bak` unless `--no-backup` is given.
+
 ## Network teardown
 
 When finished using the network use byfn.sh to stop/remove containers and

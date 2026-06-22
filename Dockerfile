@@ -3,9 +3,9 @@
 #
 FROM debian:bullseye AS byfn-vars-builder
 
-ARG BASEIMAGETAG=0.4.20
-ARG IMAGETAG=2.5.4
-ARG CAIMAGETAG=1.5.7
+ARG BASEIMAGETAG=0.4.22
+ARG IMAGETAG=2.5.16
+ARG CAIMAGETAG=1.5.21
 ARG IMAGENS=hyperledger
 
 RUN apt-get update && apt-get install -y gettext-base && rm -rf /var/lib/apt/lists/*
@@ -24,7 +24,7 @@ RUN envsubst < /tmp/byfn-vars.sh.template > /tmp/byfn-vars.sh
 #
 FROM debian:bullseye AS fabric-artifacts-builder
 
-ARG FABRIC_VERSION=2.5.4
+ARG FABRIC_VERSION=2.5.16
 ARG FABRIC_CRYPTOGEN_VERSION=${FABRIC_VERSION}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]

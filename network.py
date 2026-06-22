@@ -5,7 +5,7 @@ network.  This script wraps byfn.sh and aims to replace it with improved functio
 networks with custom network topologies.
 '''
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from glob import glob
 from itertools import groupby
 from pathlib import Path
@@ -16,10 +16,16 @@ import json
 import os
 import os.path
 import shlex
+import shutil
 import subprocess
 
 from jinja2 import Template
 from OpenSSL.crypto import load_certificate, FILETYPE_PEM
+
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519, ed448
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 class Network(object):
 
@@ -410,6 +416,105 @@ class Network(object):
         for e, p in cert_expiries('crypto-config'):
             print('{}\t{}'.format(e, p))
 
+    def reissue(self, args):
+        '''
+        Renew (re-sign) leaf certificates in place against the on-disk CA.
+
+        Reuses each node's existing key and copies the original cert's subject
+        and extensions verbatim, changing only validity + serial, so the MSP
+        identity is unchanged. Only works on cryptogen-style trees where the CA
+        private key is present on the filesystem; fabric-ca issued material must
+        be renewed with `fabric-ca-client reenroll`.
+        '''
+        if args.days is not None and args.days < 1:
+            raise SystemExit('--days must be a positive integer')
+        kinds = ['signcert', 'tls'] if args.type == 'both' else [args.type]
+        entries = discover_leaf_certs(args.crypto_config, kinds)
+        if not entries:
+            raise SystemExit(
+                'no leaf certificates found under {}'.format(args.crypto_config))
+
+        now = datetime.now(timezone.utc)
+        for e in entries:
+            e['expired'] = e['expiry'] <= now
+
+        # Fail loudly on a mistyped --node rather than silently renewing nothing.
+        if args.node:
+            unmatched = [p for p in args.node
+                         if not any(_node_matches(e['node'], [p]) for e in entries)]
+            if unmatched:
+                raise SystemExit(
+                    'no nodes matched --node: {}'.format(', '.join(unmatched)))
+
+        selecting = args.all or args.all_expired or bool(args.node)
+
+        def is_selected(e):
+            if args.node and not _node_matches(e['node'], args.node):
+                return False
+            if args.all_expired and not e['expired']:
+                return False
+            return True
+
+        targets = []
+        print('{:<42} {:<9} {:<22} {}'.format(
+            'NODE', 'KIND', 'EXPIRES', 'STATUS'))
+        for e in sorted(entries, key=lambda e: (e['org'], e['node'], e['kind'])):
+            status = 'EXPIRED' if e['expired'] else 'ok'
+            chosen = selecting and is_selected(e)
+            if chosen:
+                targets.append(e)
+                status += ' -> reissue'
+            print('{:<42} {:<9} {:<22} {}'.format(
+                e['node'], e['kind'],
+                e['expiry'].strftime('%Y-%m-%dT%H:%M:%SZ'), status))
+
+        if not selecting:
+            print('\nNo targets selected. Re-run with --node NAME, '
+                  '--all-expired, or --all to reissue.')
+            return
+        if not targets:
+            print('\nNothing matched the selection.')
+            return
+
+        print()
+        failures = 0
+        for e in targets:
+            try:
+                self._reissue_one(e, args, now)
+            except ReissueError as err:
+                failures += 1
+                print('  SKIP {} {}: {}'.format(e['node'], e['kind'], err))
+        if failures:
+            raise SystemExit(
+                '{} certificate(s) could not be reissued'.format(failures))
+
+    def _reissue_one(self, e, args, now):
+        ca_cert, ca_key = resolve_ca(e['ca_dir'], e['cert'])
+        ca_expiry = _not_after(ca_cert)
+        if ca_expiry <= now:
+            raise ReissueError(
+                'issuing CA expired {} - renew the CA and update channel config '
+                '(out of scope for reissue)'.format(
+                    ca_expiry.strftime('%Y-%m-%dT%H:%M:%SZ')))
+        capped = False
+        if args.days is None:
+            not_after = ca_expiry
+        else:
+            requested = now + timedelta(days=args.days)
+            not_after = min(requested, ca_expiry)
+            capped = requested > ca_expiry
+        note = ' (capped at CA expiry)' if capped else ''
+        label = '{} {}'.format(e['node'], e['kind'])
+        new_expiry = not_after.strftime('%Y-%m-%dT%H:%M:%SZ')
+        if args.dry_run:
+            print('  DRY-RUN {} -> {}{}'.format(label, new_expiry, note))
+            return
+        new_bytes = build_reissued_cert(e['cert'], ca_cert, ca_key, not_after)
+        if not args.no_backup:
+            shutil.copy2(str(e['cert_path']), str(_backup_path(e['cert_path'])))
+        e['cert_path'].write_bytes(new_bytes)
+        print('  OK {} -> {}{}'.format(label, new_expiry, note))
+
     def config_parameters(self):
         return ['channel']
 
@@ -547,6 +652,33 @@ class Network(object):
         parser_cert_expiries = subparsers.add_parser('cert_expiries', help='print expiration values for certs')
         parser_cert_expiries.set_defaults(func=self.cert_expiries)
 
+        parser_reissue = subparsers.add_parser(
+            'reissue',
+            help='renew (re-sign) expiring leaf certs in place using the on-disk CA')
+        parser_reissue.add_argument('--crypto-config', default='crypto-config',
+                                    dest='crypto_config',
+                                    help='path to the crypto-config tree (default: crypto-config)')
+        parser_reissue.add_argument('--type', choices=['signcert', 'tls', 'both'],
+                                    default='both',
+                                    help='which leaf cert(s) to reissue (default: both)')
+        parser_reissue.add_argument('--node', '--peer', action='append', default=[],
+                                    metavar='NAME', dest='node',
+                                    help='reissue the named node\'s certs (peer/orderer/user '
+                                         'directory name; a short name like peer1 also matches). '
+                                         'Repeatable.')
+        parser_reissue.add_argument('--all-expired', action='store_true', dest='all_expired',
+                                    help='reissue every already-expired cert')
+        parser_reissue.add_argument('--all', action='store_true',
+                                    help='reissue every leaf cert')
+        parser_reissue.add_argument('--days', type=int, default=None,
+                                    help='positive validity in days from now, capped at the CA '
+                                         'expiry (default: extend to the CA expiry)')
+        parser_reissue.add_argument('--dry-run', action='store_true', dest='dry_run',
+                                    help='show what would change without writing')
+        parser_reissue.add_argument('--no-backup', action='store_true', dest='no_backup',
+                                    help='do not write .bak copies of replaced certs')
+        parser_reissue.set_defaults(func=self.reissue)
+
         args = parser.parse_args()
         for k, v in vars(args).items():
             if k in vars(self):
@@ -595,6 +727,158 @@ def _private_collection(name, policy, sidedb_req_peer_count, sidedb_max_peer_cou
         "memberOnlyRead": False,
         "memberOnlyWrite": False,
     }
+
+class ReissueError(Exception):
+    '''Raised when a leaf certificate cannot be safely reissued.'''
+
+
+# Directory names under crypto-config that hold per-node leaf material.
+_NODE_PARENTS = ('peers', 'orderers', 'users')
+
+# leaf kind -> (cert glob, key glob, CA subdir under the org dir)
+_LEAF_SPECS = {
+    'signcert': ('msp/signcerts/*.pem', 'msp/keystore/*_sk', 'ca'),
+    'tls':      ('tls/server.crt',      'tls/server.key',     'tlsca'),
+}
+
+
+def _load_cert(path):
+    return x509.load_pem_x509_certificate(Path(path).read_bytes())
+
+
+def _pub_der(public_key):
+    return public_key.public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo)
+
+
+def _not_after(cert):
+    '''Return a tz-aware UTC expiry, tolerating old and new cryptography APIs.'''
+    not_after = getattr(cert, 'not_valid_after_utc', None)
+    if not_after is not None:
+        return not_after
+    return cert.not_valid_after.replace(tzinfo=timezone.utc)
+
+
+def _sig_hash(key):
+    # Ed25519/Ed448 are signed with algorithm=None; everything else uses SHA256.
+    if isinstance(key, (ed25519.Ed25519PrivateKey, ed448.Ed448PrivateKey)):
+        return None
+    return hashes.SHA256()
+
+
+def _node_matches(node_name, patterns):
+    for p in patterns:
+        if node_name == p or node_name.startswith(p + '.'):
+            return True
+    return False
+
+
+def discover_leaf_certs(crypto_config, kinds):
+    '''
+    Walk a cryptogen-style crypto-config tree and return one entry per
+    (node, kind) leaf certificate found, where kind is 'signcert' or 'tls'.
+    '''
+    root = Path(crypto_config)
+    entries = []
+    for parent in _NODE_PARENTS:
+        for node_dir in sorted(root.glob('*Organizations/*/{}/*'.format(parent))):
+            if not node_dir.is_dir():
+                continue
+            org_dir = node_dir.parent.parent
+            for kind in kinds:
+                cert_glob, key_glob, ca_subdir = _LEAF_SPECS[kind]
+                cert_paths = sorted(node_dir.glob(cert_glob))
+                if not cert_paths:
+                    continue
+                cert_path = cert_paths[0]
+                cert = _load_cert(cert_path)
+                entries.append({
+                    'node': node_dir.name,
+                    'org': org_dir.name,
+                    'kind': kind,
+                    'cert_path': cert_path,
+                    'cert': cert,
+                    'key_path': next(iter(sorted(node_dir.glob(key_glob))), None),
+                    'ca_dir': org_dir / ca_subdir,
+                    'expiry': _not_after(cert),
+                })
+    return entries
+
+
+def resolve_ca(ca_dir, leaf_cert):
+    '''
+    Locate the CA certificate that issued leaf_cert (matched by issuer name) and
+    its paired private key inside ca_dir. Raises ReissueError if either is
+    missing - notably when only the CA cert (not its key) is on the filesystem,
+    as with fabric-ca issued material.
+    '''
+    ca_dir = Path(ca_dir)
+    if not ca_dir.is_dir():
+        raise ReissueError('CA directory not found: {}'.format(ca_dir))
+    ca_cert = None
+    for c in sorted(ca_dir.glob('*.pem')):
+        candidate = _load_cert(c)
+        if candidate.subject == leaf_cert.issuer:
+            ca_cert = candidate
+            break
+    if ca_cert is None:
+        raise ReissueError(
+            'no CA certificate in {} matches issuer {}'.format(
+                ca_dir, leaf_cert.issuer.rfc4514_string()))
+    ca_key = None
+    for k in sorted(ca_dir.glob('*_sk')):
+        try:
+            candidate = load_pem_private_key(k.read_bytes(), password=None)
+        except Exception:
+            continue
+        if _pub_der(candidate.public_key()) == _pub_der(ca_cert.public_key()):
+            ca_key = candidate
+            break
+    if ca_key is None:
+        raise ReissueError(
+            'no CA private key (*_sk) in {} pairs with the CA certificate - '
+            'the CA key is not on this filesystem (fabric-ca material must use '
+            'fabric-ca-client reenroll)'.format(ca_dir))
+    return ca_cert, ca_key
+
+
+def build_reissued_cert(old_cert, ca_cert, ca_key, not_after):
+    '''
+    Return PEM bytes for old_cert re-dated to not_after and re-signed by ca_key.
+    Subject, public key and all extensions are copied verbatim; only the
+    validity window and serial number change, so the identity is preserved.
+    '''
+    not_before = datetime.now(timezone.utc) - timedelta(minutes=5)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(old_cert.subject)
+        .issuer_name(ca_cert.subject)
+        .public_key(old_cert.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(not_before)
+        .not_valid_after(not_after)
+    )
+    for ext in old_cert.extensions:
+        builder = builder.add_extension(ext.value, ext.critical)
+    new_cert = builder.sign(private_key=ca_key, algorithm=_sig_hash(ca_key))
+    return new_cert.public_bytes(serialization.Encoding.PEM)
+
+
+def _backup_path(cert_path):
+    bak = Path(str(cert_path) + '.bak')
+    if not bak.exists():
+        return bak
+    # Preserve any earlier backup: fall back to a timestamped name, and add a
+    # counter so two reissues within the same second still don't collide.
+    ts = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+    bak = Path('{}.{}.bak'.format(cert_path, ts))
+    n = 1
+    while bak.exists():
+        bak = Path('{}.{}-{}.bak'.format(cert_path, ts, n))
+        n += 1
+    return bak
+
 
 def cert_expiries(path):
     p = Path(path)
