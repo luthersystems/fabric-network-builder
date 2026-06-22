@@ -426,6 +426,8 @@ class Network(object):
         private key is present on the filesystem; fabric-ca issued material must
         be renewed with `fabric-ca-client reenroll`.
         '''
+        if args.days is not None and args.days < 1:
+            raise SystemExit('--days must be a positive integer')
         kinds = ['signcert', 'tls'] if args.type == 'both' else [args.type]
         entries = discover_leaf_certs(args.crypto_config, kinds)
         if not entries:
@@ -435,6 +437,14 @@ class Network(object):
         now = datetime.now(timezone.utc)
         for e in entries:
             e['expired'] = e['expiry'] <= now
+
+        # Fail loudly on a mistyped --node rather than silently renewing nothing.
+        if args.node:
+            unmatched = [p for p in args.node
+                         if not any(_node_matches(e['node'], [p]) for e in entries)]
+            if unmatched:
+                raise SystemExit(
+                    'no nodes matched --node: {}'.format(', '.join(unmatched)))
 
         selecting = args.all or args.all_expired or bool(args.node)
 
@@ -661,8 +671,8 @@ class Network(object):
         parser_reissue.add_argument('--all', action='store_true',
                                     help='reissue every leaf cert')
         parser_reissue.add_argument('--days', type=int, default=None,
-                                    help='validity in days from now, capped at the CA expiry '
-                                         '(default: extend to the CA expiry)')
+                                    help='positive validity in days from now, capped at the CA '
+                                         'expiry (default: extend to the CA expiry)')
         parser_reissue.add_argument('--dry-run', action='store_true', dest='dry_run',
                                     help='show what would change without writing')
         parser_reissue.add_argument('--no-backup', action='store_true', dest='no_backup',
@@ -857,9 +867,16 @@ def build_reissued_cert(old_cert, ca_cert, ca_key, not_after):
 
 def _backup_path(cert_path):
     bak = Path(str(cert_path) + '.bak')
-    if bak.exists():
-        ts = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
-        bak = Path('{}.{}.bak'.format(cert_path, ts))
+    if not bak.exists():
+        return bak
+    # Preserve any earlier backup: fall back to a timestamped name, and add a
+    # counter so two reissues within the same second still don't collide.
+    ts = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
+    bak = Path('{}.{}.bak'.format(cert_path, ts))
+    n = 1
+    while bak.exists():
+        bak = Path('{}.{}-{}.bak'.format(cert_path, ts, n))
+        n += 1
     return bak
 
 

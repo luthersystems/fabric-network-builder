@@ -487,6 +487,30 @@ class ReissueCommandTest(unittest.TestCase):
             self.assertEqual(before, self._bytes(sc))
             self.assertFalse(Path(str(sc) + '.bak').exists())
 
+    def test_days_zero_or_negative_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / 'crypto-config'
+            _build_tree(root)
+            sc = self._snapshot(root, kinds=['signcert'])[
+                ('peer1.org1.example.com', 'signcert')]
+            before = self._bytes(sc)
+            for bad in (0, -5):
+                with self.assertRaisesRegex(SystemExit, 'days'):
+                    _run(root, all_expired=True, days=bad)
+            self.assertEqual(before, self._bytes(sc))  # nothing written
+
+    def test_unknown_node_errors_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / 'crypto-config'
+            _build_tree(root)
+            sc = self._snapshot(root, kinds=['signcert'])[
+                ('peer1.org1.example.com', 'signcert')]
+            before = self._bytes(sc)
+            with self.assertRaisesRegex(SystemExit, 'no nodes matched'):
+                _run(root, node=['peeer1'], type='signcert')  # typo, no such node
+            self.assertEqual(before, self._bytes(sc))
+            self.assertEqual(_glob_baks(root), [])
+
     def test_mixed_success_and_failure(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d) / 'crypto-config'
@@ -507,16 +531,21 @@ class ReissueCommandTest(unittest.TestCase):
 
 
 class BackupPathTest(unittest.TestCase):
-    def test_timestamped_when_bak_exists(self):
+    def test_unique_non_clobbering_backups(self):
         with tempfile.TemporaryDirectory() as d:
             cert = Path(d) / 'c.pem'
             cert.write_bytes(b'x')
-            first = _backup_path(cert)
-            self.assertEqual(first, Path(str(cert) + '.bak'))
-            first.write_bytes(b'orig')          # occupy the canonical name
-            second = _backup_path(cert)
-            self.assertNotEqual(second, first)   # falls back to a timestamped name
-            self.assertTrue(str(second).endswith('.bak'))
+            seen = []
+            # even with repeated calls in the same second, every returned path is
+            # new (counter suffix) so an earlier backup is never overwritten
+            for _ in range(3):
+                p = _backup_path(cert)
+                self.assertFalse(p.exists())
+                self.assertTrue(str(p).endswith('.bak'))
+                p.write_bytes(b'bak')  # materialize so the next call must avoid it
+                seen.append(p)
+            self.assertEqual(seen[0], Path(str(cert) + '.bak'))
+            self.assertEqual(len(set(seen)), 3)  # all distinct
 
 
 if __name__ == '__main__':
