@@ -6,6 +6,9 @@ on:
 jobs:
   build-push-docker:
     name: ${{ matrix.arch }} - docker build push
+    permissions:
+      contents: read
+      id-token: write # Docker Hub OIDC login
     runs-on: ${{ fromJSON('{"arm64":"2vcpu-ubuntu-2204-arm","amd64":"ubuntu-22.04"}')[matrix.arch] }}
     strategy:
       matrix:
@@ -18,12 +21,13 @@ jobs:
           lfs: true
       - name: Configure DockerHub
         uses: ./.github/actions/configure-dockerhub
-        env:
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
       - name: Publish
         run: make docker-push VERSION=$GITHUB_REF_NAME TAG_SUFFIX=-${{ matrix.arch }}
+        timeout-minutes: 60 # the Docker Hub OIDC token lasts 60 minutes
   push-docker-manifests:
+    permissions:
+      contents: read
+      id-token: write # Docker Hub OIDC login
     runs-on: ubuntu-22.04
     needs:
       - build-push-docker
@@ -33,8 +37,6 @@ jobs:
           lfs: true
       - name: Configure DockerHub
         uses: ./.github/actions/configure-dockerhub
-        env:
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
       - name: Publish
         run: make push-manifests VERSION=$GITHUB_REF_NAME
+        timeout-minutes: 60 # the Docker Hub OIDC token lasts 60 minutes
