@@ -1,7 +1,7 @@
 #
 # byfn-vars builder
 #
-FROM debian:bullseye AS byfn-vars-builder
+FROM debian:bookworm AS byfn-vars-builder
 
 ARG BASEIMAGETAG=0.4.22
 ARG IMAGETAG=2.5.16
@@ -22,7 +22,7 @@ RUN envsubst < /tmp/byfn-vars.sh.template > /tmp/byfn-vars.sh
 #
 # fabric artifacts builder
 #
-FROM debian:bullseye AS fabric-artifacts-builder
+FROM debian:bookworm AS fabric-artifacts-builder
 
 ARG FABRIC_VERSION=2.5.16
 ARG FABRIC_CRYPTOGEN_VERSION=${FABRIC_VERSION}
@@ -47,7 +47,7 @@ RUN ARCH=$(uname -m) && \
 
 # FNB image
 #
-FROM python:3.12-bullseye
+FROM python:3.12-bookworm
 
 RUN apt-get update && apt-get install --no-install-recommends -y zip rsync gettext-base curl && rm -rf /var/lib/apt/lists/*
 
