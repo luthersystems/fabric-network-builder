@@ -253,3 +253,22 @@ Tear down the application network
 docker-compose -f docker-compose-prop.yaml down
 sudo rm -r dockertmp/*/*
 ```
+
+## Releasing
+
+Releases are tags `vMAJOR.MINOR.PATCH` cut from `main`. Pushing a tag runs
+`.github/workflows/release.yml`, which builds the amd64 and arm64
+`luthersystems/fabric-network-builder` images and pushes them and the
+multiarch manifests to Docker Hub.
+
+Cut a release with the `Release (tag)` workflow
+(`.github/workflows/release-tag.yml`). It checks that the version is strictly
+newer than the latest stable tag and that it runs on the latest `main`, writes
+notes from the commits since that tag, and runs `gh release create` as the
+Claude GitHub App, so the tag starts `release.yml` (a tag made with the default
+`GITHUB_TOKEN` would not):
+
+```sh
+gh workflow run release-tag.yml -f version=vX.Y.Z -f dry_run=true  # preview
+gh workflow run release-tag.yml -f version=vX.Y.Z
+```
