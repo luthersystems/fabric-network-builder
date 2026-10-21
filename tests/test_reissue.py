@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from network import (  # noqa: E402
     Network,
     build_reissued_cert,
+    cert_expiries,
     discover_leaf_certs,
     resolve_ca,
     _backup_path,
@@ -232,6 +233,30 @@ class DiscoveryTest(unittest.TestCase):
             _build_tree(root)
             entries = discover_leaf_certs(str(root), ['signcert'])
             self.assertEqual({e['kind'] for e in entries}, {'signcert'})
+
+
+class CertExpiriesTest(unittest.TestCase):
+    # cert_expiries backs the `cert_expiries` command. It had no test, so a
+    # change to the library that parses the certs could break the command
+    # with `make test` still green.
+    def test_lists_each_cert_once_with_its_expiry(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / 'crypto-config'
+            info = _build_tree(root)
+            # cryptogen writes the same CA cert under several paths; the
+            # command reports only the copy with the shortest path.
+            ca = info['orgs']['org1.example.com']['dir'] / 'ca' / 'ca.org1.example.com-cert.pem'
+            _write(ca.parent.parent / 'msp' / 'cacerts' / 'deeper' / ca.name, ca.read_bytes())
+
+            out = cert_expiries(str(root))
+
+            paths = [p for _, p in out]
+            self.assertEqual(len(paths), len(set(paths)))
+            self.assertIn(str(ca), paths)
+            self.assertNotIn(str(ca.parent.parent / 'msp' / 'cacerts' / 'deeper' / ca.name), paths)
+            want = info['ca_not_after'].strftime('%Y-%m-%dT%H:%M:%SZ')
+            self.assertEqual(dict((p, e) for e, p in out)[str(ca)], want)
+            self.assertEqual(out, sorted(out))
 
 
 class BuildReissuedTest(unittest.TestCase):
