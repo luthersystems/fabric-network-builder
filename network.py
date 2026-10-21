@@ -20,7 +20,6 @@ import shutil
 import subprocess
 
 from jinja2 import Template
-from OpenSSL.crypto import load_certificate, FILETYPE_PEM
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -884,24 +883,25 @@ def cert_expiries(path):
     p = Path(path)
     certs = list(p.glob('**/*.pem')) + list(p.glob('**/*.crt'))
 
-    date_in_fmt = '%Y%m%d%H%M%SZ'
     date_out_fmt = '%Y-%m-%dT%H:%M:%SZ'
 
-    # group cert files by their md5 hash
+    # group cert files by their md5 hash. The certs are read with
+    # cryptography, which reissue already uses, not pyOpenSSL: pyOpenSSL caps
+    # cryptography below its next major, so keeping it made every cryptography
+    # bump wait for a pyOpenSSL release (#11).
     certs_by_hashes = dict()
     for c in certs:
         cert_bytes = c.read_bytes()
         h = hashlib.md5()
         h.update(cert_bytes)
         md5 = h.hexdigest()
-        x509 = load_certificate(FILETYPE_PEM, cert_bytes)
-        cert_expiry = x509.get_notAfter().decode()
         if md5 not in certs_by_hashes:
+            cert = x509.load_pem_x509_certificate(cert_bytes)
             certs_by_hashes[md5] = {
                 'paths': list(),
-                'expiry': datetime.strptime(cert_expiry, date_in_fmt).strftime(date_out_fmt)
+                'expiry': _not_after(cert).strftime(date_out_fmt)
             }
-            certs_by_hashes[md5]['paths'].append(c)
+        certs_by_hashes[md5]['paths'].append(c)
 
     k = lambda p: len(p.parts)
 
