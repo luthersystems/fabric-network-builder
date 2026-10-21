@@ -29,3 +29,29 @@ jobs:
       - name: Build
         run: make
         timeout-minutes: 10
+
+  # The image must not trust the eMudhra (emSign) roots (CVE-2026-111943),
+  # on each platform that release.yml publishes. Each trust store is read
+  # with the runner's openssl, so the check does not rely on the image's
+  # own tools or on distrust-emudhra.sh.
+  trust-store:
+    name: Trust store (${{ matrix.platform }})
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build
+        run: docker buildx build --platform "${{ matrix.platform }}" --load -t fnb-ci .
+        timeout-minutes: 30
+      - name: Check the image
+        run: scripts/check-image-trust.sh fnb-ci "${{ matrix.platform }}"
+        timeout-minutes: 10

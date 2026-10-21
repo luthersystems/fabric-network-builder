@@ -1,7 +1,7 @@
 #
 # byfn-vars builder
 #
-FROM debian:bullseye AS byfn-vars-builder
+FROM debian:bookworm AS byfn-vars-builder
 
 ARG BASEIMAGETAG=0.4.22
 ARG IMAGETAG=2.5.16
@@ -22,7 +22,7 @@ RUN envsubst < /tmp/byfn-vars.sh.template > /tmp/byfn-vars.sh
 #
 # fabric artifacts builder
 #
-FROM debian:bullseye AS fabric-artifacts-builder
+FROM debian:bookworm AS fabric-artifacts-builder
 
 ARG FABRIC_VERSION=2.5.16
 ARG FABRIC_CRYPTOGEN_VERSION=${FABRIC_VERSION}
@@ -47,7 +47,7 @@ RUN ARCH=$(uname -m) && \
 
 # FNB image
 #
-FROM python:3.12-bullseye
+FROM python:3.12-bookworm
 
 RUN apt-get update && apt-get install --no-install-recommends -y zip rsync gettext-base curl && rm -rf /var/lib/apt/lists/*
 
@@ -83,3 +83,9 @@ RUN chmod -R +x \
 
 COPY --from=fabric-artifacts-builder /tmp/hyperledger/fabric/bin/* /var/lib/fabric-network-builder/release/linux/bin/
 COPY --from=byfn-vars-builder /tmp/byfn-vars.sh /var/lib/fabric-network-builder/
+
+# Remove the eMudhra (emSign) root CAs (CVE-2026-111943) from the system
+# trust store and from the certifi bundles that pip carries. This must stay
+# the last RUN of the image: a later apt or pip step can restore the roots.
+COPY distrust-emudhra.sh /usr/local/sbin/distrust-emudhra.sh
+RUN sh /usr/local/sbin/distrust-emudhra.sh
