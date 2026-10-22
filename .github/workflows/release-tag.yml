@@ -40,7 +40,7 @@ jobs:
     # caller grants exactly what the shared workflow uses.
     permissions:
       actions: read # read the CI workflow's runs for the release commit
-      contents: write # check and verify the release
+      contents: read # verify the release; the Claude App token creates it
       id-token: write # Bedrock role and the Claude App token
     uses: luthersystems/.github/.github/workflows/release-tag.yml@v1
     with:
