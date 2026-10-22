@@ -37,8 +37,13 @@ jobs:
 
   # The image must run the build-harden kit last and must not trust a
   # distrusted CA (such as eMudhra/emSign, CVE-2026-111943), on each platform
-  # that release.yml publishes. The kit's checks read the exported image with
-  # the runner's openssl, so they do not rely on the image's own tools.
+  # that release.yml publishes. The check reads the exported image with the
+  # runner's openssl, so it does not rely on the image's own tools.
+  #
+  # The check is the org's shared action, not a script in this repo: there is
+  # one copy of the check logic, and a fix reaches every repo when v1 moves.
+  # It reads the kit (and so the policy) from the build-harden stage that the
+  # Dockerfile pins, so the build and the check use the same kit.
   trust-store:
     name: Trust store (${{ matrix.platform }})
     runs-on: ubuntu-22.04
@@ -58,5 +63,12 @@ jobs:
         run: docker buildx build --platform "${{ matrix.platform }}" --load -t fnb-ci .
         timeout-minutes: 30
       - name: Check the image
-        run: scripts/check-image-harden.sh fnb-ci "${{ matrix.platform }}"
+        uses: luthersystems/.github/actions/harden-check@v1
+        with:
+          dockerfiles: Dockerfile
+          images: fnb-ci ${{ matrix.platform }}
         timeout-minutes: 10
+      # The image must still start after the kit ran.
+      - name: Check that the image starts
+        run: docker run --rm --platform "${{ matrix.platform }}" fnb-ci --help
+        timeout-minutes: 5
