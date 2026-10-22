@@ -1,4 +1,10 @@
 #
+# build-harden kit (luthersystems/buildenv images/harden), run last in the
+# final stage
+#
+FROM luthersystems/build-harden:v0.1.45@sha256:ed783a0cd4faf6cd791b844970f00309cec76c4ab90b1e111d641ba44d67ba46 AS harden
+
+#
 # byfn-vars builder
 #
 FROM debian:bookworm AS byfn-vars-builder
@@ -84,8 +90,8 @@ RUN chmod -R +x \
 COPY --from=fabric-artifacts-builder /tmp/hyperledger/fabric/bin/* /var/lib/fabric-network-builder/release/linux/bin/
 COPY --from=byfn-vars-builder /tmp/byfn-vars.sh /var/lib/fabric-network-builder/
 
-# Remove the eMudhra (emSign) root CAs (CVE-2026-111943) from the system
-# trust store and from the certifi bundles that pip carries. This must stay
-# the last RUN of the image: a later apt or pip step can restore the roots.
-COPY distrust-emudhra.sh /usr/local/sbin/distrust-emudhra.sh
-RUN sh /usr/local/sbin/distrust-emudhra.sh
+# Harden the image with the build-harden kit: it removes each distrusted CA
+# (such as the eMudhra/emSign roots, CVE-2026-111943) from the system trust
+# store and from every certifi bundle. This must stay the last step that
+# changes files: a later apt, pip or COPY --from step can restore the roots.
+RUN --mount=type=bind,from=harden,source=/harden,target=/harden sh /harden/harden.sh
