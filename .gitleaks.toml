@@ -1,0 +1,14 @@
+# gitleaks config for the shared security workflow (security / secrets).
+# It keeps every default rule and allows only the paths below.
+#
+# Why each path is allowed: the file holds a test value that is not a real
+# secret, so a scan of the whole tree would fail on it every time. Keep each
+# entry narrow (one file, not a directory of code), so a real secret added
+# anywhere else still fails the check.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "CouchDB local.ini for the local docker-compose network that network.py builds. Its cookie secret, admin password hashes and the commented-out curl examples from the CouchDB docs are test values, not real secrets (the file says TEST ONLY)."
+paths = ['''^template/couchdb/local\.ini$''']
