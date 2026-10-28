@@ -14,7 +14,7 @@ ARG IMAGETAG=2.5.16
 ARG CAIMAGETAG=1.5.21
 ARG IMAGENS=hyperledger
 
-RUN apt-get update && apt-get install -y gettext-base && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends gettext-base && rm -rf /var/lib/apt/lists/*
 
 COPY byfn-vars.sh.template /tmp/
 
@@ -35,7 +35,9 @@ ARG FABRIC_CRYPTOGEN_VERSION=${FABRIC_VERSION}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Function to map uname -m to amd64 or arm64
+# Function to map uname -m to amd64 or arm64.
+# ca-certificates is named because --no-install-recommends (Trivy DS-0029)
+# drops it, and curl needs it for the https downloads below.
 RUN ARCH=$(uname -m) && \
     case "$ARCH" in \
       x86_64) ARCH="amd64" ;; \
@@ -43,7 +45,7 @@ RUN ARCH=$(uname -m) && \
       arm64) ARCH="arm64" ;; \
       *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
     esac && \
-    apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/* \
+    apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /tmp/hyperledger/fabric \
   && cd /tmp/hyperledger/fabric \
   && curl -sSL "https://github.com/hyperledger/fabric/releases/download/v${FABRIC_VERSION}/hyperledger-fabric-linux-${ARCH}-${FABRIC_VERSION}.tar.gz" | tar xz \
