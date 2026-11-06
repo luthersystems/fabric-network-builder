@@ -7,3 +7,11 @@
 # Fabric source copied verbatim by third_party/fabric/vendor.py.
 third_party/fabric/configtxgen/encoder/encoder.go | * | never | - | Upstream Fabric source, copied verbatim.
 third_party/fabric/cryptogen/cryptogen.go | * | never | - | Upstream Fabric source, copied by vendor.py.
+
+# Fabric's sample core.yaml, which the network template and its goldens copy.
+internal/render/templates/core.yaml.tmpl | # TODO: The default Hash and Security level needs refactoring | never | - | Upstream Fabric core.yaml text.
+internal/render/testdata/golden/big/core.yaml | # TODO: The default Hash and Security level needs refactoring | never | - | Golden copy of the upstream core.yaml.
+internal/render/testdata/golden/default/core.yaml | # TODO: The default Hash and Security level needs refactoring | never | - | Golden copy of the upstream core.yaml.
+internal/render/testdata/golden/luther/core.yaml | # TODO: The default Hash and Security level needs refactoring | never | - | Golden copy of the upstream core.yaml.
+internal/render/testdata/golden/nchoose2/core.yaml | # TODO: The default Hash and Security level needs refactoring | never | - | Golden copy of the upstream core.yaml.
+internal/render/testdata/golden/nchoose2common/core.yaml | # TODO: The default Hash and Security level needs refactoring | never | - | Golden copy of the upstream core.yaml.

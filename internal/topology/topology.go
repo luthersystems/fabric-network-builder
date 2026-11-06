@@ -76,8 +76,6 @@ type Org struct {
 	Index string
 	// CAPort is the host port of the org's CA: 7054, 8054, ...
 	CAPort string
-	// SANs are the peer SAN domain suffixes with {i} replaced by Index.
-	SANs []string
 }
 
 // PeerPort is one peer and the port prefix of its host ports: the peer
@@ -144,10 +142,6 @@ func New(opts Options) (*Network, error) {
 	}
 	for i := 1; i <= opts.OrgCount; i++ {
 		org := Org{Index: strconv.Itoa(i), CAPort: strconv.Itoa(1000*i + 6054)}
-		for _, d := range opts.PeerSANDomains {
-			// The Python builder used str.format(i=i): {i} is the only field.
-			org.SANs = append(org.SANs, strings.ReplaceAll(d, "{i}", org.Index))
-		}
 		n.Orgs = append(n.Orgs, org)
 	}
 	for j := range opts.PeerCount {
