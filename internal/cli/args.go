@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
+	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -150,7 +152,14 @@ func lookup(cmd *command, opts []*option, name string) (*option, error) {
 	}
 }
 
-func isOption(tok string) bool { return len(tok) > 1 && strings.HasPrefix(tok, "-") }
+// negativeNumber matches what argparse reads as a negative number. No
+// option of the builder looks like one, so argparse takes such a word as a
+// value or a positional (--min-endorsers -1), and so does this parser.
+var negativeNumber = regexp.MustCompile(`^-\d+$|^-\d*\.\d+$`)
+
+func isOption(tok string) bool {
+	return len(tok) > 1 && strings.HasPrefix(tok, "-") && !negativeNumber.MatchString(tok)
+}
 
 // level is one parser level: the global options, or one command's.
 type level struct {
@@ -165,6 +174,8 @@ type level struct {
 // first one and everything after it.
 func (v *values) readOptions(l level, args []string) ([]string, error) {
 	cmd, opts := l.cmd, l.opts
+	// A bundle of short flags (-fs) is split in place, so work on a copy.
+	args = slices.Clone(args)
 	var pos []string
 	onlyPositionals := false
 	for i := 0; i < len(args); i++ {
@@ -198,6 +209,13 @@ func (v *values) readOptions(l level, args []string) ([]string, error) {
 		}
 		display := o.names[0]
 		if o.kind == kindBool {
+			if hasInline && !strings.HasPrefix(tok, "--") {
+				// -fs couchdb: argparse reads -f, then -s couchdb.
+				v.bools[o.dest] = o.value
+				args[i] = "-" + inline
+				i--
+				continue
+			}
 			if hasInline {
 				return nil, usagef(cmd, "argument %s: ignored explicit argument %q", display, inline)
 			}
