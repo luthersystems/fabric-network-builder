@@ -23,11 +23,7 @@ createChannel ${CHANNEL_NAME}
 echo "Having all peers join the channel..."
 joinChannel ${CHANNEL_NAME}
 
-for i in "${ORG_INDICES[@]}"
-do
-  echo "Updating anchor peers for org${i}..."
-  updateAnchorPeers 0 "${i}"
-done
+# No anchor peer update: the anchor peers are in the channel's genesis block.
 
 echo
 echo "========= All GOOD, Channel initialized successfully =========== "

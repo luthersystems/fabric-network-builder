@@ -588,7 +588,11 @@ class Network(object):
         parser_gen.add_argument('--execute-timeout', help='chaincode execute timeout',
                                 type=int,
                                 default=self.execute_timeout)
-        parser_gen.add_argument('--orderer-type', help='orderer cluster type (etcdraft or solo) ',
+        # Only etcdraft: the network has no system channel, and the channel
+        # participation API that replaces it does not support solo (Fabric 3
+        # removed solo outright).
+        parser_gen.add_argument('--orderer-type', help='orderer cluster type (etcdraft)',
+                                choices=['etcdraft'],
                                 default='etcdraft')
         parser_gen.add_argument('--orderer-count', help='number of orderer servers to generate config for',
                                 type=int,
@@ -685,14 +689,6 @@ class Network(object):
         args.func(args)
 
 
-def envsubst(in_path, out_path, submap):
-    cmd = ['bash', '-c', 'envsubst ' + ("'" + (" ".join(map((lambda x: ("$" + x)), submap.keys()))) + "'") + ' < ' + shlex.quote(in_path)]
-    output = capture(cmd, setenv=submap)
-    with open(out_path, 'w') as f:
-        f.truncate()
-        f.write(output.decode('utf-8'))
-
-
 def run(cmd, chdir=None, env=None, setenv=None):
     if env is None:
         env = os.environ.copy()
@@ -700,7 +696,7 @@ def run(cmd, chdir=None, env=None, setenv=None):
         for k, v in setenv.items():
             env[k] = v
     print(' '.join(map(shlex.quote, cmd)))
-    subprocess.check_call(cmd, cwd=chdir, env=env)
+    subprocess.check_call(cmd, cwd=chdir, env=env)  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- cmd is an argv list run without a shell; every caller builds it from fixed program names and this tool's own config
 
 
 def capture(cmd, chdir=None, env=None, setenv=None):
@@ -710,7 +706,7 @@ def capture(cmd, chdir=None, env=None, setenv=None):
         for k, v in setenv.items():
             env[k] = v
     print(' '.join(map(shlex.quote, cmd)))
-    return subprocess.check_output(cmd, cwd=chdir, env=env)
+    return subprocess.check_output(cmd, cwd=chdir, env=env)  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit -- cmd is an argv list run without a shell; every caller builds it from fixed program names and this tool's own config
 
 
 def append_opt(cmd, opt, value):

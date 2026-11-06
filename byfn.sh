@@ -29,6 +29,39 @@ export FABRIC_CFG_PATH=${PWD}
 # Get relevant image tag names
 . /var/lib/fabric-network-builder/byfn-vars.sh
 
+# FNB_IMAGETAG overrides the Fabric peer, orderer and ccenv image tag baked
+# into this image, so one builder image can run a network on another Fabric
+# release (luthersystems/substrate#1034 runs its e2e networks on 2.5 and 3.x).
+# The CLI runs the fabric-tools image, which Fabric 3 no longer publishes, so
+# TOOLSIMAGETAG keeps the override for a 2.x release and otherwise falls back
+# to the baked 2.x tag. FNB_TOOLSIMAGETAG sets it outright.
+function resolveImageTags() {
+  local baked=$IMAGETAG
+  IMAGETAG=${FNB_IMAGETAG:-$IMAGETAG}
+  # The channel flow needs the channel participation API and osnadmin, which
+  # Fabric 2.3 added.
+  case "$IMAGETAG" in
+    1.*|2.[0-2]|2.[0-2].*)
+      echo "Fabric $IMAGETAG is not supported: the network needs Fabric 2.3 or later (channel participation)" >&2
+      return 1 ;;
+  esac
+  if [ -n "${FNB_TOOLSIMAGETAG:-}" ]; then
+    TOOLSIMAGETAG=$FNB_TOOLSIMAGETAG
+    return 0
+  fi
+  case "$IMAGETAG" in
+    2.*) TOOLSIMAGETAG=$IMAGETAG ;;
+    *)
+      case "$baked" in
+        2.*) TOOLSIMAGETAG=$baked ;;
+        *)
+          echo "no fabric-tools image for Fabric $IMAGETAG: set FNB_TOOLSIMAGETAG to a 2.x release" >&2
+          return 1 ;;
+      esac ;;
+  esac
+}
+resolveImageTags || exit 1
+
 # Print the usage message
 function printHelp () {
   echo "Usage: "
@@ -130,7 +163,7 @@ function checkPrereqs() {
   # Note, we check configtxlator externally because it does not require a config file, and peer in the
   # docker image because of FAB-8551 that makes configtxlator return 'development version' in docker
   LOCAL_VERSION=$(configtxlator version | sed -ne 's/ Version: //p')
-  DOCKER_IMAGE_VERSION=$(docker run --rm $IMAGENS/fabric-tools:$IMAGETAG peer version | sed -ne 's/ Version: //p'|head -1)
+  DOCKER_IMAGE_VERSION=$(docker run --rm $IMAGENS/fabric-tools:$TOOLSIMAGETAG peer version | sed -ne 's/ Version: //p'|head -1)
 
   echo "LOCAL_VERSION=$LOCAL_VERSION"
   echo "DOCKER_IMAGE_VERSION=$DOCKER_IMAGE_VERSION"
@@ -169,7 +202,7 @@ function networkUp () {
     echo "ERROR !!!! Missing crypto material"
     exit 1
   fi
-  CHANNEL_NAME=$CHANNEL_NAME DOCKER_PROJECT_DIR=$DOCKER_PROJECT_DIR TIMEOUT=$CLI_TIMEOUT IMAGE_NS=$IMAGENS CA_IMAGE_TAG=$CAIMAGETAG IMAGE_TAG=$IMAGETAG BASE_IMAGE_TAG=$BASEIMAGETAG CHAINCODE_VERSION=$CHAINCODE_VERSION docker-compose $COMPOSE_FILE_ARGS up -d 2>&1
+  CHANNEL_NAME=$CHANNEL_NAME DOCKER_PROJECT_DIR=$DOCKER_PROJECT_DIR TIMEOUT=$CLI_TIMEOUT IMAGE_NS=$IMAGENS CA_IMAGE_TAG=$CAIMAGETAG IMAGE_TAG=$IMAGETAG TOOLS_IMAGE_TAG=$TOOLSIMAGETAG BASE_IMAGE_TAG=$BASEIMAGETAG CHAINCODE_VERSION=$CHAINCODE_VERSION docker-compose $COMPOSE_FILE_ARGS up -d 2>&1
   if [ $? -ne 0 ]; then
     echo "ERROR !!!! Unable to start network"
     docker logs -f cli
@@ -295,11 +328,11 @@ function generateChaincode () {
 
 # Tear down running network
 function networkDown () {
-  IMAGE_NS=$IMAGENS CA_IMAGE_TAG=$CAIMAGETAG IMAGE_TAG=$IMAGETAG BASE_IMAGE_TAG=$BASEIMAGETAG docker-compose $COMPOSE_FILE_ARGS down --volumes
+  IMAGE_NS=$IMAGENS CA_IMAGE_TAG=$CAIMAGETAG IMAGE_TAG=$IMAGETAG TOOLS_IMAGE_TAG=$TOOLSIMAGETAG BASE_IMAGE_TAG=$BASEIMAGETAG docker-compose $COMPOSE_FILE_ARGS down --volumes
   if [ "$MODE" != "restart" ]; then
     # Bring down the network, deleting the volumes
     #Delete any ledger backups
-    docker run -v $PWD:/tmp/first-network --rm $IMAGENS/fabric-tools:$IMAGETAG rm -Rf /tmp/first-network/ledgers-backup
+    docker run -v $PWD:/tmp/first-network --rm $IMAGENS/fabric-tools:$TOOLSIMAGETAG rm -Rf /tmp/first-network/ledgers-backup
     #Cleanup the chaincode containers
     clearContainers
     #Cleanup images
@@ -437,105 +470,36 @@ function extendCerts (){
 }
 
 
-# The `configtxgen tool is used to create four artifacts: orderer **bootstrap
-# block**, fabric **channel configuration transaction**, and two **anchor
-# peer transactions** - one for each Peer Org.
-#
-# The orderer block is the genesis block for the ordering service, and the
-# channel transaction file is broadcast to the orderer at channel creation
-# time.  The anchor peer transactions, as the name might suggest, specify each
-# Org's anchor peer on this channel.
-#
-# Configtxgen consumes a file - ``configtx.yaml`` - that contains the definitions
-# for the sample network. There are three members - one Orderer Org (``OrdererOrg``)
-# and two Peer Orgs (``Org1`` & ``Org2``) each managing and maintaining two peer nodes.
-# This file also specifies a consortium - ``SampleConsortium`` - consisting of our
-# two Peer Orgs.  Pay specific attention to the "Profiles" section at the top of
-# this file.  You will notice that we have two unique headers. One for the orderer genesis
-# block - ``TwoOrgsOrdererGenesis`` - and one for our channel - ``TwoOrgsChannel``.
-# These headers are important, as we will pass them in as arguments when we create
-# our artifacts.  This file also contains two additional specifications that are worth
-# noting.  Firstly, we specify the anchor peers for each Peer Org
-# (``peer0.org1.example.com`` & ``peer0.org2.example.com``).  Secondly, we point to
-# the location of the MSP directory for each member, in turn allowing us to store the
-# root certificates for each Org in the orderer genesis block.  This is a critical
-# concept. Now any network entity communicating with the ordering service can have
-# its digital signature verified.
-#
-# This function will generate the crypto material and our four configuration
-# artifacts, and subsequently output these files into the ``channel-artifacts``
-# folder.
-#
-# If you receive the following warning, it can be safely ignored:
-#
-# [bccsp] GetDefault -> WARN 001 Before using BCCSP, please call InitFactories(). Falling back to bootBCCSP.
-#
-# You can ignore the logs regarding intermediate certs, we are not using them in
-# this crypto implementation.
-
-# Generate orderer genesis block, channel configuration transaction and
-# anchor peer update transactions
+# Generate the application channel's genesis block. There is no orderer
+# system channel, no channel creation transaction and no anchor peer update
+# transactions: the orderers and peers join the channel with this one block
+# (scripts/luther_utils.sh createChannel and joinChannel), and the anchor
+# peers are in it. Fabric 3 removed the system channel; Fabric 2.3 and later
+# support this flow.
 function generateChannelArtifacts() {
-  GEN_ARTIFACTS_ERRORED=""
-
-  which configtxgen
-  if [ "$?" -ne 0 ]; then
+  if ! which configtxgen; then
     echo "configtxgen tool not found. exiting"
-    GEN_ARTIFACTS_ERRORED=""
-  fi
-
-  if [ -d channel-artifacts ]; then
-    echo "channel-artifacts directory already exists"
-    GEN_ARTIFACTS_ERRORED=""
-  fi
-
-  if [ -n "$GEN_ARTIFACTS_ERRORED" ]; then
     exit 1
   fi
+
+  # network.py refuses to generate over existing artifacts unless --force,
+  # so here an existing directory is a forced regenerate: replace it, as
+  # generateCerts replaces crypto-config.
+  rm -rf channel-artifacts
 
   mkdir channel-artifacts
 
   echo "##########################################################"
-  echo "#########  Generating Orderer Genesis block ##############"
+  echo "#####  Generating channel '$CHANNEL_NAME' genesis block  #####"
   echo "##########################################################"
-  # Note: For some unknown reason (at least for now) the block file can't be
-  # named orderer.genesis.block or the orderer will fail to launch!
   set -x
-  configtxgen -profile AnyOrgsOrdererGenesis -channelID byfn-sys-channel -outputBlock ./channel-artifacts/genesis.block
+  configtxgen -profile AnyOrgsApplicationGenesis -channelID "$CHANNEL_NAME" -outputBlock "./channel-artifacts/${CHANNEL_NAME}.block"
   res=$?
   set +x
   if [ $res -ne 0 ]; then
-    echo "Failed to generate orderer genesis block..."
+    echo "Failed to generate the channel genesis block..."
     exit 1
   fi
-  echo
-  echo "#################################################################"
-  echo "### Generating channel configuration transaction 'channel.tx' ###"
-  echo "#################################################################"
-  set -x
-  configtxgen -profile AnyOrgsChannel -outputCreateChannelTx ./channel-artifacts/channel.tx -channelID $CHANNEL_NAME
-  res=$?
-  set +x
-  if [ $res -ne 0 ]; then
-    echo "Failed to generate channel configuration transaction..."
-    exit 1
-  fi
-
-  for i in $(seq 1 $ORG_COUNT)
-  do
-    echo
-    echo "#################################################################"
-    echo "#######    Generating anchor peer update for Org${i}MSP   ##########"
-    echo "#################################################################"
-    set -x
-    configtxgen -profile AnyOrgsChannel -outputAnchorPeersUpdate ./channel-artifacts/Org${i}MSPanchors.tx -channelID $CHANNEL_NAME -asOrg Org${i}MSP
-    res=$?
-    set +x
-    if [ $res -ne 0 ]; then
-      echo "Failed to generate anchor peer update for Org${i}MSP..."
-      exit 1
-    fi
-  done
 }
 
 # timeout duration - the duration the CLI should wait for a response from

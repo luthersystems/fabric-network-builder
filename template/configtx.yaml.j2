@@ -26,6 +26,14 @@ Organizations:
         # MSPDir is the filesystem path which contains the MSP configuration
         MSPDir: crypto-config/ordererOrganizations/{{DOMAIN_NAME}}/msp
 
+        # OrdererEndpoints are the orderer addresses that peers and clients
+        # read from the channel config. Fabric 2.0 added them per org, and
+        # Fabric 3 deprecates the channel-level Orderer.Addresses below.
+        OrdererEndpoints:
+            {%- for o in ORDERERS %}
+            - {{o.host}}:{{o.port}}
+            {%- endfor %}
+
         # Policies defines the set of policies at this level of the config tree
         # For organization policies, their canonical path is usually
         #   /Channel/<Application|Orderer>/<OrgName>/<PolicyName>
@@ -173,9 +181,14 @@ Application: &ApplicationDefaults
 ################################################################################
 Orderer: &OrdererDefaults
     # Orderer Type: The orderer implementation to start
-    # Available types are "solo", "etcdraft", and "kafka"
+    # Only "etcdraft" is generated: channel participation does not support
+    # solo, and Fabric 3 removed solo and kafka.
     OrdererType: {{ORDERER_TYPE}}
 
+    # Addresses is the channel-level orderer list. Peers on Fabric 2.0 and
+    # later read OrdererEndpoints (above) instead and log that these are
+    # ignored, but fabric-sdk-go reads only this list from a channel config,
+    # so it stays for the shiroclient gateway's SDK client mode.
     Addresses: {{ORDERER_ADDRESSES}}
 
     # Batch Timeout: The amount of time to wait before creating a batch
@@ -314,30 +327,24 @@ Channel: &ChannelDefaults
 #   Section: Profiles
 #
 #   Different configuration profiles may be encoded here to be specified as
-#   parameters to the configtxgen tool. The profiles which specify consortiums
-#   are to be used for generating the orderer genesis block. With the correct
-#   consortium members defined in the orderer genesis block, channel creation
-#   requests may be generated with only the org member names and a consortium
-#   name.
+#   parameters to the configtxgen tool. There is no consortium and no
+#   orderer system channel: the one profile below is the application
+#   channel's genesis block.
 #
 ################################################################################
 Profiles:
-    AnyOrgsOrdererGenesis:
+    # AnyOrgsApplicationGenesis is the genesis block of the application
+    # channel. There is no system channel: each orderer joins the channel with
+    # this block through the channel participation API (osnadmin), and each
+    # peer joins with the same block. Fabric 3 removed the system channel, and
+    # Fabric 2.3 and later support this flow, so one network config runs on
+    # both Fabric 2.5 and 3.x (luthersystems/substrate#1034).
+    AnyOrgsApplicationGenesis:
         <<: *ChannelDefaults
         Orderer:
             <<: *OrdererDefaults
             Organizations:
                 - *OrdererOrg
-        Consortiums:
-            SampleConsortium:
-                Organizations:
-                    {%- for i in ORG_INDICES %}
-                    - *Org{{i}}
-                    {%- endfor %}
-
-    AnyOrgsChannel:
-        <<: *ChannelDefaults
-        Consortium: SampleConsortium
         Application:
             <<: *ApplicationDefaults
             Organizations:

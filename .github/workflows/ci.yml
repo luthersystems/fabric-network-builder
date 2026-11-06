@@ -35,6 +35,29 @@ jobs:
         run: make
         timeout-minutes: 10
 
+  # Brings a generated network up on each Fabric line the builder supports
+  # and checks every node joined the channel. Only a running network shows a
+  # break in the channel flow: `generate` succeeds either way. The network has
+  # no system channel, so the same config runs on 2.5 and 3.x
+  # (luthersystems/substrate#1034).
+  network:
+    name: Network (Fabric ${{ matrix.fabric }})
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        fabric:
+          - 2.5.16
+          - 3.1.4
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        run: docker build -t fnb-ci .
+        timeout-minutes: 15
+      - name: Bring a network up
+        run: tests/network-smoke.sh fnb-ci "${{ matrix.fabric }}"
+        timeout-minutes: 15
+
   # The image must run the build-harden kit last and must not trust a
   # distrusted CA (such as eMudhra/emSign, CVE-2026-111943), on each platform
   # that release.yml publishes. The check reads the exported image with the

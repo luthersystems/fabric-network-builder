@@ -20,11 +20,12 @@ FUNC = _extract_askproceed()
 
 
 def _run(stdin, force=None):
-    env = dict(os.environ)
+    # A fixed command: the function body goes in through the environment.
+    env = dict(os.environ, ASKPROCEED_FUNC=FUNC)
     if force is not None:
         env['FORCE'] = force
     return subprocess.run(
-        ['bash', '-c', FUNC + '\naskProceed\n'],
+        ['bash', '-c', 'eval "$ASKPROCEED_FUNC"\naskProceed\n'],
         input=stdin, env=env, capture_output=True, text=True)
 
 
