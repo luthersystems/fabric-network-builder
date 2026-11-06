@@ -234,6 +234,12 @@ func (e *env) doGenerate(n *topology.Network) error {
 	if err := fabtools.ChannelGenesisBlock(e.dir, e.channel, e.path(network.ChannelBlock(e.channel))); err != nil {
 		return err
 	}
+	// The mars Kubernetes roles start a new Fabric 2.5 network the v0.0.10
+	// way: system channel genesis block, channel.tx and anchor peer updates.
+	e.printf("Generating the orderer system channel artifacts\n")
+	if err := fabtools.SystemChannelArtifacts(e.dir, e.channel, e.path("channel-artifacts")); err != nil {
+		return err
+	}
 	return e.owner.chownAll(e.dir, cryptoAssets...)
 }
 

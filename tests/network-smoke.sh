@@ -44,7 +44,11 @@ trap cleanup EXIT
 
 fnb generate --domain=luther.systems --cc-name=smoke --org-count=2 --peer-count=2
 test -f "${work}/channel-artifacts/${channel}.block"
-test ! -e "${work}/channel-artifacts/genesis.block"
+# The Docker network joins with the channel block; these are for the mars
+# Kubernetes roles (fnb-gen.sh), as v0.0.10 wrote them.
+for f in genesis.block channel.tx Org1MSPanchors.tx Org2MSPanchors.tx; do
+  test -f "${work}/channel-artifacts/${f}"
+done
 
 fnb -s goleveldb up --cc-version smoke
 

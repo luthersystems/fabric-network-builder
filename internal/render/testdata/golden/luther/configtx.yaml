@@ -373,3 +373,31 @@ Profiles:
             Organizations:
                 - *Org1
                 - *Org2
+
+    # AnyOrgsOrdererGenesis and AnyOrgsChannel are the Fabric 2.5 orderer
+    # system channel flow, which the mars Kubernetes roles still use for a
+    # new 2.5 network: the orderer starts from genesis.block (this profile),
+    # the channel is created with channel.tx (AnyOrgsChannel), and each org
+    # sets its anchor peers with <MSP>anchors.tx. Generate writes those files
+    # next to the channel genesis block. The Docker network does not use
+    # them, and Fabric 3 has no system channel.
+    AnyOrgsOrdererGenesis:
+        <<: *ChannelDefaults
+        Orderer:
+            <<: *OrdererDefaults
+            Organizations:
+                - *OrdererOrg
+        Consortiums:
+            SampleConsortium:
+                Organizations:
+                    - *Org1
+                    - *Org2
+
+    AnyOrgsChannel:
+        <<: *ChannelDefaults
+        Consortium: SampleConsortium
+        Application:
+            <<: *ApplicationDefaults
+            Organizations:
+                - *Org1
+                - *Org2

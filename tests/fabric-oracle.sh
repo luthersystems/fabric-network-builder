@@ -14,6 +14,9 @@
 # Checks:
 #   - The channel genesis block decodes to the same JSON as configtxgen's,
 #     except the nonce, tx ID, timestamp and data hash.
+#   - So do the v0.0.10 files that fnb-gen.sh ships to the mars Kubernetes
+#     roles: the system channel genesis.block, channel.tx and the
+#     <MSP>anchors.tx updates (the last against Fabric 2.5.16).
 #   - cryptogen makes the same files, the same config.yaml files, and certs
 #     with the same subject, issuer, extensions and validity length.
 #   - `extend` on that network matches `cryptogen extend`: it adds no file
@@ -24,6 +27,8 @@
 #   BUILDER         the builder binary, or else the builder image to run
 #   FABRIC_BIN      a directory with the release tools; by default the script
 #                   downloads them to build/fabric-<version>
+#   FABRIC_BIN_25   the same for Fabric 2.5.16, whose configtxgen still
+#                   writes anchor peer updates (Fabric 3 removed the flag)
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -36,17 +41,30 @@ profile=AnyOrgsApplicationGenesis
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 mkdir -p "${repo}/build"
 
-bin=${FABRIC_BIN:-${repo}/build/fabric-${version}/bin}
-if [ ! -x "${bin}/configtxgen" ]; then
-  case "$(uname -m)" in
-    x86_64) arch=amd64 ;;
-    aarch64 | arm64) arch=arm64 ;;
-    *) echo "no Fabric release for $(uname -m)" >&2; exit 1 ;;
-  esac
-  mkdir -p "${repo}/build/fabric-${version}"
-  curl -sSfL "https://github.com/hyperledger/fabric/releases/download/v${version}/hyperledger-fabric-linux-${arch}-${version}.tar.gz" |
-    tar -xz -C "${repo}/build/fabric-${version}" bin/configtxgen bin/cryptogen bin/configtxlator
-fi
+# tools VERSION: prints the directory with the release tools of VERSION.
+tools() {
+  local dir=${repo}/build/fabric-$1/bin
+  if [ -n "${FABRIC_BIN:-}" ] && [ "$1" = "${version}" ]; then
+    dir=${FABRIC_BIN}
+  elif [ -n "${FABRIC_BIN_25:-}" ] && [ "$1" = "${legacy_version}" ]; then
+    dir=${FABRIC_BIN_25}
+  fi
+  if [ ! -x "${dir}/configtxgen" ]; then
+    case "$(uname -m)" in
+      x86_64) arch=amd64 ;;
+      aarch64 | arm64) arch=arm64 ;;
+      *) echo "no Fabric release for $(uname -m)" >&2; exit 1 ;;
+    esac
+    mkdir -p "${repo}/build/fabric-$1"
+    curl -sSfL "https://github.com/hyperledger/fabric/releases/download/v$1/hyperledger-fabric-linux-${arch}-$1.tar.gz" |
+      tar -xz -C "${repo}/build/fabric-$1" bin/configtxgen bin/cryptogen bin/configtxlator
+  fi
+  echo "${dir}"
+}
+# The release whose configtxgen still writes anchor peer updates.
+legacy_version=2.5.16
+bin=$(tools "${version}")
+bin25=$(tools "${legacy_version}")
 
 work=$(mktemp -d "${repo}/build/oracle.XXXXXX")
 trap 'rm -rf "${work}"' EXIT
@@ -125,6 +143,36 @@ for f in "${net}/channel-artifacts/${channel}.block" "${work}/fabric.block"; do
   echo "${got}" >"${work}/got"
   echo "${want}" >"${work}/want"
   check "data hash of $(basename "${f}")" "${work}/got" "${work}/want"
+done
+
+# --- System channel flow (v0.0.10 files for the mars Kubernetes roles) ----
+envmask='.payload.header.channel_header |= (del(.timestamp) | del(.tx_id))
+  | .payload.header.signature_header |= del(.nonce)'
+decode() { # decode TYPE FILE MASK OUT
+  "${bin}/configtxlator" proto_decode --type "$1" --input "$2" | jq -S "$3" >"$4"
+}
+"${bin}/configtxgen" -configPath "${net}" -profile AnyOrgsOrdererGenesis -channelID byfn-sys-channel \
+  -outputBlock "${work}/fabric.genesis.block" 2>/dev/null
+decode common.Block "${net}/channel-artifacts/genesis.block" "${mask}" "${work}/builder.genesis.json"
+decode common.Block "${work}/fabric.genesis.block" "${mask}" "${work}/fabric.genesis.json"
+check "system channel genesis block" "${work}/builder.genesis.json" "${work}/fabric.genesis.json"
+read -r got want < <(block_hashes "${net}/channel-artifacts/genesis.block")
+echo "${got}" >"${work}/got"
+echo "${want}" >"${work}/want"
+check "data hash of genesis.block" "${work}/got" "${work}/want"
+
+"${bin}/configtxgen" -configPath "${net}" -profile AnyOrgsChannel -channelID "${channel}" \
+  -outputCreateChannelTx "${work}/fabric.channel.tx" 2>/dev/null
+decode common.Envelope "${net}/channel-artifacts/channel.tx" "${envmask}" "${work}/builder.channel.json"
+decode common.Envelope "${work}/fabric.channel.tx" "${envmask}" "${work}/fabric.channel.json"
+check "channel.tx" "${work}/builder.channel.json" "${work}/fabric.channel.json"
+
+for org in Org1MSP Org2MSP; do
+  "${bin25}/configtxgen" -configPath "${net}" -profile AnyOrgsChannel -channelID "${channel}" \
+    -outputAnchorPeersUpdate "${work}/fabric.${org}anchors.tx" -asOrg "${org}" 2>/dev/null
+  decode common.Envelope "${net}/channel-artifacts/${org}anchors.tx" "${envmask}" "${work}/builder.${org}.json"
+  decode common.Envelope "${work}/fabric.${org}anchors.tx" "${envmask}" "${work}/fabric.${org}.json"
+  check "${org}anchors.tx (Fabric ${legacy_version})" "${work}/builder.${org}.json" "${work}/fabric.${org}.json"
 done
 
 # --- Crypto material ------------------------------------------------------

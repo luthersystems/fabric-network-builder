@@ -16,7 +16,9 @@ import (
 // (network.py generate --template, at the commit before the Go rewrite) with
 // the options below. Consumers commit these files, so the Go templates must
 // reproduce them byte for byte. Do not regenerate them from the Go code: a
-// diff here is a change every consumer sees.
+// diff here is a change every consumer sees. One change since: configtx.yaml
+// has the AnyOrgsOrdererGenesis and AnyOrgsChannel profiles of v0.0.10
+// again, because the mars Kubernetes roles still use them.
 func goldenOptions(t *testing.T) map[string]topology.Options {
 	t.Helper()
 	opts := func(f func(*topology.Options)) topology.Options {

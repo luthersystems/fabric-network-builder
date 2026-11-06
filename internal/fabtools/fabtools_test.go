@@ -12,6 +12,7 @@ import (
 	"github.com/hyperledger/fabric-x-common/protoutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/luthersystems/fabric-network-builder/internal/render"
 	"github.com/luthersystems/fabric-network-builder/internal/topology"
@@ -90,4 +91,51 @@ func TestBadConfigIsAnError(t *testing.T) {
 	require.ErrorContains(t, ChannelGenesisBlock(dir, "c", filepath.Join(dir, "x.block")), "configtxgen")
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "crypto.yaml"), []byte("PeerOrgs: ["), 0o644))
 	require.ErrorContains(t, GenerateCrypto(filepath.Join(dir, "crypto.yaml"), dir), "cryptogen")
+}
+
+// The mars Kubernetes roles start a Fabric 2.5 orderer from genesis.block
+// (the orderer system channel), create the channel with channel.tx and set
+// the anchor peers with <MSP>anchors.tx. fnb-gen.sh ships these files to
+// mars, so generate must keep writing them, as v0.0.10 did.
+func TestSystemChannelArtifacts(t *testing.T) {
+	dir := project(t, topology.DefaultOptions())
+	cc := filepath.Join(dir, "crypto-config")
+	require.NoError(t, GenerateCrypto(filepath.Join(dir, "crypto-config.yaml"), cc))
+	out := filepath.Join(dir, "channel-artifacts")
+	require.NoError(t, SystemChannelArtifacts(dir, "luther", out))
+
+	b, err := os.ReadFile(filepath.Join(out, SystemChannelBlock))
+	require.NoError(t, err)
+	blk, err := protoutil.UnmarshalBlock(b)
+	require.NoError(t, err)
+	want := sha256.Sum256(bytes.Join(blk.Data.Data, nil))
+	assert.Equal(t, want[:], blk.Header.DataHash)
+	env, err := protoutil.ExtractEnvelope(blk, 0)
+	require.NoError(t, err)
+	cfg := &cb.ConfigEnvelope{}
+	_, err = protoutil.UnmarshalEnvelopeOfType(env, cb.HeaderType_CONFIG, cfg)
+	require.NoError(t, err)
+	assert.Contains(t, cfg.Config.ChannelGroup.Groups, "Consortiums")
+	assert.NotContains(t, cfg.Config.ChannelGroup.Groups, "Application")
+
+	updates := map[string]string{ChannelCreateTx: "", "Org1MSPanchors.tx": "AnchorPeers", "Org2MSPanchors.tx": "AnchorPeers"}
+	for name, value := range updates {
+		b, err := os.ReadFile(filepath.Join(out, name))
+		require.NoError(t, err, name)
+		env := &cb.Envelope{}
+		require.NoError(t, proto.Unmarshal(b, env))
+		cue := &cb.ConfigUpdateEnvelope{}
+		ch, err := protoutil.UnmarshalEnvelopeOfType(env, cb.HeaderType_CONFIG_UPDATE, cue)
+		require.NoError(t, err, name)
+		assert.Equal(t, "luther", ch.ChannelId, name)
+		cu := &cb.ConfigUpdate{}
+		require.NoError(t, proto.Unmarshal(cue.ConfigUpdate, cu))
+		app := cu.WriteSet.Groups["Application"]
+		require.NotNil(t, app, name)
+		if value != "" {
+			org := app.Groups[name[:len(name)-len("anchors.tx")]]
+			require.NotNil(t, org, name)
+			assert.Contains(t, org.Values, value, name)
+		}
+	}
 }
