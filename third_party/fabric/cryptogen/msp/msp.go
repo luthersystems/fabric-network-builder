@@ -17,7 +17,7 @@ import (
 
 	"github.com/luthersystems/fabric-network-builder/third_party/fabric/cryptogen/ca"
 	"github.com/luthersystems/fabric-network-builder/third_party/fabric/cryptogen/csp"
-	fabricmsp "github.com/hyperledger/fabric/msp"
+	fabricmsp "github.com/hyperledger/fabric-x-common/msp"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 )

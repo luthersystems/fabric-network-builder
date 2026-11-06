@@ -21,7 +21,14 @@ hyperledger/fabric v3.1.4, under the Apache License 2.0 (`LICENSE`).
 
 `vendor.py` makes every change. Do not edit a copied file by hand.
 
-- The import paths point to this directory.
+- The import paths of the copied packages point to this directory.
+- The import paths of Fabric's public packages (`common/channelconfig`,
+  `msp`, `protoutil` and others) point to
+  `github.com/hyperledger/fabric-x-common`, which has the same packages at
+  the same paths. The `github.com/hyperledger/fabric` module has no release
+  with a Go semver tag, so govulncheck reports GO-2024-3099 for any build
+  that imports it (#34). A channel genesis block made this way decodes to
+  the same config as one made with the Fabric packages.
 - `cryptogen.go` is package `cryptogen`, not `main`. The kingpin flags are
   package variables, and each `os.Exit` is a `panic` with the same message,
   so the builder can report the error and continue.
