@@ -326,10 +326,17 @@ func Rebuild(old, ca *x509.Certificate, caKey crypto.Signer, notAfter time.Time)
 	if err != nil {
 		return nil, err
 	}
+	// Five minutes back allows for clock skew between hosts, but never before
+	// the CA: the Fabric MSP checks a cert's chain at its NotBefore, and
+	// cryptogen dates a new CA from the current minute minus 5 minutes.
+	notBefore := time.Now().UTC().Add(-5 * time.Minute)
+	if notBefore.Before(ca.NotBefore) {
+		notBefore = ca.NotBefore.UTC()
+	}
 	tmpl := &x509.Certificate{
 		SerialNumber:       serial,
 		RawSubject:         old.RawSubject,
-		NotBefore:          time.Now().UTC().Add(-5 * time.Minute),
+		NotBefore:          notBefore,
 		NotAfter:           notAfter,
 		SignatureAlgorithm: alg,
 		// ExtraExtensions replace any extension Go would derive, so the
