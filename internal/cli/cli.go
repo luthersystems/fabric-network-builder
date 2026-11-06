@@ -340,16 +340,13 @@ func (e *env) up() error {
 		return fmt.Errorf("unable to start network: %w", err)
 	}
 	if e.systemChannelNetwork() {
-		// A network that v0.0.10 or earlier generated: its orderer starts
-		// from the system channel genesis block and has no channel
-		// participation API. Create and join the channel with the
-		// network's own scripts in the cli container, as v0.0.10 did.
-		e.printf("channel-artifacts has no %s: creating channel %s the v0.0.10 way (orderer system channel)\n",
+		// A network that v0.0.10 or earlier generated: its orderers run
+		// the system channel and have no channel participation API.
+		e.printf("channel-artifacts has no %s: creating channel %s from channel.tx (orderer system channel)\n",
 			filepath.Base(network.ChannelBlock(e.channel)), e.channel)
-		for _, script := range []string{"/scripts/create_channel.sh", "/scripts/join_channel.sh"} {
-			if xerr := p.Exec(e.ctx, "cli", script, e.channel); xerr != nil {
-				return fmt.Errorf("unable to set up channel %s: %w", e.channel, xerr)
-			}
+		err = e.withAdmin(p, func(n *admin.Network) error { return n.CreateSystemChannel(e.ctx, e.channel) })
+		if err != nil {
+			return fmt.Errorf("unable to create channel %s: %w", e.channel, err)
 		}
 		e.printf("Network joined channel %s and is ready for chaincode installation\n", e.channel)
 		return nil

@@ -133,24 +133,6 @@ func (p *Project) Up(ctx context.Context) error {
 	})
 }
 
-// Exec runs cmd in the running container of service, as `docker compose
-// exec -T`, and fails if cmd exits non-zero. Its output goes to the
-// project's output.
-func (p *Project) Exec(ctx context.Context, service string, cmd ...string) error {
-	code, err := p.service.Exec(ctx, p.project.Name, api.RunOptions{
-		Project: p.project,
-		Service: service,
-		Command: cmd,
-	})
-	if err != nil {
-		return err
-	}
-	if code != 0 {
-		return fmt.Errorf("%s: %s exited %d", service, strings.Join(cmd, " "), code)
-	}
-	return nil
-}
-
 // Down stops and removes the containers, networks and volumes, as
 // `docker compose down --volumes`.
 func (p *Project) Down(ctx context.Context) error {
