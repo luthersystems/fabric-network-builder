@@ -13,7 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric-x-common/protoutil"
 
 	"github.com/luthersystems/fabric-network-builder/third_party/fabric/configtxgen/encoder"
 	"github.com/luthersystems/fabric-network-builder/third_party/fabric/configtxgen/genesisconfig"

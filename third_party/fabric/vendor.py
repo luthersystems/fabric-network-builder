@@ -24,6 +24,12 @@ IMPORTS = {
     "github.com/hyperledger/fabric/internal/configtxgen/": MOD + "/configtxgen/",
     "github.com/hyperledger/fabric/internal/configtxlator/": MOD + "/configtxlator/",
     "github.com/hyperledger/fabric/internal/pkg/": MOD + "/pkg/",
+    # The public packages come from fabric-x-common, which has the same
+    # packages under the same paths. The github.com/hyperledger/fabric
+    # module has no release with a Go semver tag, so govulncheck reports
+    # GO-2024-3099 for any build that imports it (#34). Keep this entry last:
+    # the internal paths above must be rewritten first.
+    "github.com/hyperledger/fabric/": "github.com/hyperledger/fabric-x-common/",
 }
 
 

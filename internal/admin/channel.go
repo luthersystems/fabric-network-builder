@@ -15,7 +15,7 @@ import (
 
 	"github.com/hyperledger/fabric-admin-sdk/pkg/channel"
 	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
-	"github.com/hyperledger/fabric/protoutil"
+	"github.com/hyperledger/fabric-x-common/protoutil"
 
 	"github.com/luthersystems/fabric-network-builder/internal/network"
 )

@@ -18,9 +18,9 @@ import (
 	"github.com/hyperledger/fabric-lib-go/common/flogging"
 	"github.com/hyperledger/fabric-protos-go-apiv2/orderer/etcdraft"
 	"github.com/hyperledger/fabric-protos-go-apiv2/orderer/smartbft"
-	"github.com/hyperledger/fabric/common/viperutil"
-	cf "github.com/hyperledger/fabric/core/config"
-	"github.com/hyperledger/fabric/msp"
+	"github.com/hyperledger/fabric-x-common/common/viperutil"
+	cf "github.com/hyperledger/fabric-x-common/core/config"
+	"github.com/hyperledger/fabric-x-common/msp"
 )
 
 const (
