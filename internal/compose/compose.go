@@ -145,6 +145,44 @@ func (p *Project) NetworkName() (string, error) {
 	return n.Name, nil
 }
 
+// runningNetwork is the name of the network the running nodes are on. It
+// can differ from NetworkName: the CCaaS compose file names the network
+// "byfn", and without that file compose names it <project>_byfn. A network
+// started before generatecc wrote the CCaaS file has the second name, and
+// install, which loads that file, must still reach it.
+func (p *Project) runningNetwork(ctx context.Context) (string, error) {
+	want, err := p.NetworkName()
+	if err != nil {
+		return "", err
+	}
+	names := slices.Sorted(maps.Keys(p.project.Services))
+	for _, s := range names {
+		cname := p.project.Services[s].ContainerName
+		if cname == "" {
+			continue
+		}
+		c, ierr := p.client().ContainerInspect(ctx, cname)
+		if ierr != nil || c.NetworkSettings == nil {
+			continue
+		}
+		if _, ok := c.NetworkSettings.Networks[want]; ok {
+			return want, nil
+		}
+		for n := range c.NetworkSettings.Networks {
+			if isNetworkFor(n, p.project.Name) {
+				return n, nil
+			}
+		}
+	}
+	return want, nil
+}
+
+// isNetworkFor reports whether a network name is one this project's byfn
+// network can have: "byfn" or "<project>_byfn".
+func isNetworkFor(name, project string) bool {
+	return name == NetworkKey || name == project+"_"+NetworkKey
+}
+
 // selfContainer returns the ID of the container the builder runs in, or ""
 // when it runs on a host. Consumers run the builder in a container with the
 // Docker socket mounted; Docker sets the container's host name to its ID.
@@ -182,7 +220,7 @@ func (r *Route) Close() { r.leave() }
 // IP on the network. In a container, the builder first joins the network,
 // until Close.
 func (p *Project) Route(ctx context.Context) (*Route, error) {
-	netName, err := p.NetworkName()
+	netName, err := p.runningNetwork(ctx)
 	if err != nil {
 		return nil, err
 	}
