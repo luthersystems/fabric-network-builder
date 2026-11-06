@@ -91,6 +91,19 @@ var (
 			{"cc_path", "path to the packaged chaincode tarball"},
 		},
 	}
+	cmdInvoke = &command{
+		name: "invoke",
+		help: "submit a chaincode transaction and wait until it is committed",
+		options: []*option{
+			flag("init", true, "invoke the chaincode's Init (for --init-required)", "--init"),
+			{names: []string{"--peer"}, kind: kindAppend, dest: "peer", meta: "peerJ.orgI",
+				help: "endorse on this peer (repeatable; default: the first peer of each org)"},
+		},
+		positionals: []positional{
+			{"cc_name", "chaincode name"},
+			{"ctor", `arguments as the peer CLI's -c took them: {"Args":["fn","arg"]}`},
+		},
+	}
 	cmdDown        = &command{name: "down", help: "teardown network containers"}
 	cmdCertExpires = &command{name: "cert_expiries", help: "print expiration values for certs"}
 	cmdReissue     = &command{
@@ -108,5 +121,5 @@ var (
 			flag("no_backup", true, "do not write .bak copies of replaced certs", "--no-backup"),
 		},
 	}
-	commands = []*command{cmdGenerate, cmdExtend, cmdUp, cmdInstall, cmdGeneratecc, cmdDown, cmdCertExpires, cmdReissue}
+	commands = []*command{cmdGenerate, cmdExtend, cmdUp, cmdInstall, cmdInvoke, cmdGeneratecc, cmdDown, cmdCertExpires, cmdReissue}
 )

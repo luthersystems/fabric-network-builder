@@ -83,6 +83,7 @@ func Run(ctx context.Context, args []string, s Streams) int {
 		cmdExtend:      e.extend,
 		cmdUp:          e.up,
 		cmdInstall:     e.install,
+		cmdInvoke:      e.invoke,
 		cmdGeneratecc:  e.generatecc,
 		cmdDown:        e.down,
 		cmdCertExpires: e.certExpiries,
@@ -458,6 +459,42 @@ func (e *env) install() error {
 			PackageDir:   filepath.Dir(a.path),
 			InitRequired: e.v.boolean("init_required", false),
 		})
+	})
+}
+
+// invoke submits a chaincode transaction, as scripts/init.sh and the
+// consumers' `peer chaincode invoke` in the cli container did.
+func (e *env) invoke() error {
+	args, err := admin.ParseCtor(e.pos["ctor"])
+	if err != nil {
+		return usagef(cmdInvoke, "%v", err)
+	}
+	var peers []admin.PeerRef
+	for _, s := range e.v.lists["peer"] {
+		r, perr := admin.ParsePeer(s)
+		if perr != nil {
+			return usagef(cmdInvoke, "%v", perr)
+		}
+		peers = append(peers, r)
+	}
+	p, err := e.loadProject("")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = p.Close() }()
+	return e.withAdmin(p, func(n *admin.Network) error {
+		payload, ierr := n.Invoke(e.ctx, admin.InvokeOptions{
+			Channel:   e.channel,
+			Chaincode: e.pos["cc_name"],
+			Peers:     peers,
+			Args:      args,
+			Init:      e.v.boolean("init", false),
+		})
+		if ierr != nil {
+			return ierr
+		}
+		e.printf("%s\n", payload)
+		return nil
 	})
 }
 

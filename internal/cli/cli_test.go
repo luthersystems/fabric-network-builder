@@ -267,3 +267,15 @@ func TestChaincodeIDsFromIDFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, none)
 }
+
+// invoke checks its arguments before it touches the network.
+func TestInvokeArgs(t *testing.T) {
+	code, _, errOut := runCLI(t, "", "--force", "invoke", "a", "not json")
+	assert.Equal(t, 2, code, errOut)
+	assert.Contains(t, errOut, "constructor")
+	code, _, errOut = runCLI(t, "", "--force", "invoke", "--peer", "org1", "a", `{"Args":["x"]}`)
+	assert.Equal(t, 2, code, errOut)
+	assert.Contains(t, errOut, "want peerJ.orgI")
+	code, _, errOut = runCLI(t, "", "--force", "invoke", "a")
+	assert.Equal(t, 2, code, errOut)
+}
