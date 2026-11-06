@@ -77,6 +77,9 @@ func Load(ctx context.Context, o Options) (*Project, error) {
 	opts, err := cli.NewProjectOptions(paths,
 		cli.WithWorkingDirectory(dir),
 		cli.WithOsEnv,
+		// With no argument, WithEnvFiles names the project's .env;
+		// WithDotEnv reads only the files named before it.
+		cli.WithEnvFiles(),
 		cli.WithDotEnv,
 		cli.WithEnv(envList),
 		cli.WithName(name),
