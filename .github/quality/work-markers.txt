@@ -7,6 +7,7 @@
 # Fabric source copied verbatim by third_party/fabric/vendor.py.
 third_party/fabric/configtxgen/encoder/encoder.go | * | never | - | Upstream Fabric source, copied verbatim.
 third_party/fabric/cryptogen/cryptogen.go | * | never | - | Upstream Fabric source, copied by vendor.py.
+third_party/fabric/policydsl/policyparser.go | * | never | - | Upstream Fabric source, copied verbatim. Its dedupe TODO must stay undone: Fabric keeps repeated principals.
 
 # Fabric's sample core.yaml, which the network template and its goldens copy.
 internal/render/templates/core.yaml.tmpl | # TODO: The default Hash and Security level needs refactoring | never | - | Upstream Fabric core.yaml text.
