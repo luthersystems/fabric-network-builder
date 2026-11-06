@@ -1,6 +1,7 @@
 package fabtools
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,7 +22,7 @@ func project(t *testing.T, o topology.Options) string {
 	files, err := render.Network(n)
 	require.NoError(t, err)
 	dir := t.TempDir()
-	require.NoError(t, render.Write(dir, files, nil))
+	require.NoError(t, render.Write(dir, files, nil, io.Discard))
 	return dir
 }
 
@@ -68,7 +69,7 @@ func TestGenerateExtendAndGenesisBlock(t *testing.T) {
 	require.NoError(t, err)
 	files, err := render.Network(n)
 	require.NoError(t, err)
-	require.NoError(t, render.Write(dir, files, nil))
+	require.NoError(t, render.Write(dir, files, nil, io.Discard))
 	require.NoError(t, ExtendCrypto(filepath.Join(dir, "crypto-config.yaml"), cc))
 	assert.FileExists(t, filepath.Join(cc, "peerOrganizations/org1.example.com/peers/peer2.org1.example.com/tls/server.crt"))
 	caAfter, err := os.ReadFile(filepath.Join(cc, "peerOrganizations/org1.example.com/ca/ca.org1.example.com-cert.pem"))
