@@ -167,7 +167,6 @@ func (n *Network) JoinPeers(ctx context.Context, channelID string) error {
 		if err != nil {
 			return err
 		}
-		defer p.Close()
 		return n.retry(ctx, p.host+" join "+channelID, func() error {
 			cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()

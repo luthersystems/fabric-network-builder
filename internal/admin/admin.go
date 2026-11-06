@@ -10,16 +10,16 @@ package admin
 
 import (
 	"context"
-	"crypto"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/luthersystems/fabric-network-builder/internal/certs"
 
 	"github.com/hyperledger/fabric-admin-sdk/pkg/identity"
 	"google.golang.org/grpc"
@@ -34,6 +34,7 @@ type Resolver func(host string, port int) string
 
 // Network is a running network and the material to administer it.
 type Network struct {
+	conns   map[peerKey]*peerConn
 	Out     io.Writer
 	Vars    *network.Vars
 	Resolve Resolver
@@ -123,20 +124,11 @@ func signer(mspID, adminDir string) (identity.SigningIdentity, error) {
 	if err != nil {
 		return nil, err
 	}
-	b, err := os.ReadFile(keyPath) //nolint:gosec // project file
-	if err != nil {
-		return nil, err
-	}
-	block, _ := pem.Decode(b)
-	if block == nil {
-		return nil, fmt.Errorf("%s: no PEM key", keyPath)
-	}
-	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	// The same loader as reissue: cryptogen writes PKCS#8, fabric-ca and
+	// hand-made material can be SEC1 or PKCS#1.
+	key, err := certs.LoadKey(keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", keyPath, err)
-	}
-	if _, ok := key.(crypto.Signer); !ok {
-		return nil, fmt.Errorf("%s: unsupported key type %T", keyPath, key)
 	}
 	return identity.NewPrivateKeySigningIdentity(mspID, cert, key)
 }
@@ -150,7 +142,35 @@ type peerConn struct {
 	host string
 }
 
+type peerKey struct{ org, peer int }
+
+// dialPeer returns the connection to peer j of org i. A Network keeps one
+// connection per peer until Close: an install takes about a dozen steps on
+// the same peers, and gRPC reconnects a broken connection by itself.
 func (n *Network) dialPeer(org, peer int) (*peerConn, error) {
+	if p, ok := n.conns[peerKey{org, peer}]; ok {
+		return p, nil
+	}
+	p, err := n.newPeerConn(org, peer)
+	if err != nil {
+		return nil, err
+	}
+	if n.conns == nil {
+		n.conns = map[peerKey]*peerConn{}
+	}
+	n.conns[peerKey{org, peer}] = p
+	return p, nil
+}
+
+// Close closes the peer connections.
+func (n *Network) Close() {
+	for k, p := range n.conns {
+		_ = p.conn.Close()
+		delete(n.conns, k)
+	}
+}
+
+func (n *Network) newPeerConn(org, peer int) (*peerConn, error) {
 	v := n.Vars
 	pool, err := readPool(n.path(v.PeerTLSRoot(org, peer)))
 	if err != nil {
@@ -178,8 +198,6 @@ func (n *Network) dialPeer(org, peer int) (*peerConn, error) {
 	}
 	return &peerConn{host: host, conn: conn, id: id}, nil
 }
-
-func (p *peerConn) Close() { _ = p.conn.Close() }
 
 // forEachPeer runs f on every peer, org by org, as the shell forEachPeer did.
 func (n *Network) forEachPeer(f func(org, peer int) error) error {

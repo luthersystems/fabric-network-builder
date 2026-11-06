@@ -123,7 +123,8 @@ func loadCert(path string) (*x509.Certificate, error) {
 	return c, nil
 }
 
-func loadKey(path string) (crypto.Signer, error) {
+// LoadKey reads a PEM private key: SEC1 EC, PKCS#1 RSA or PKCS#8.
+func LoadKey(path string) (crypto.Signer, error) {
 	b, err := os.ReadFile(path) //nolint:gosec // see loadCert
 	if err != nil {
 		return nil, err
@@ -282,7 +283,7 @@ func ResolveCA(caDir string, leaf *x509.Certificate) (*CA, error) {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		key, err := loadKey(k)
+		key, err := LoadKey(k)
 		if err != nil {
 			continue
 		}
