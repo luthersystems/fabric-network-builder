@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hyperledger/fabric-admin-sdk/pkg/chaincode"
 	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
+	lb "github.com/hyperledger/fabric-protos-go-apiv2/peer/lifecycle"
 	"github.com/hyperledger/fabric/common/policydsl"
 
 	cc "github.com/luthersystems/fabric-network-builder/internal/chaincode"
@@ -79,17 +81,26 @@ func (n *Network) applicationPolicy() (*pb.ApplicationPolicy, error) {
 
 // installedID returns the package ID of the package with label on the
 // peer, or "" when none is installed.
-func installedID(ctx context.Context, p *peerConn, label string) (string, error) {
+// isInstalled reports whether the peer has the package with ID id. It
+// matches the ID, not the label: a peer can keep an older package with the
+// same label (one the shell builder made with GNU tar, or one generated
+// again), and the definition must name the package whose ID generatecc
+// wrote to <label>.id, which the CCaaS container runs with.
+func isInstalled(ctx context.Context, p *peerConn, id string) (bool, error) {
 	res, err := chaincode.NewPeer(p.conn, p.id).QueryInstalled(ctx)
 	if err != nil {
-		return "", err
+		return false, err
 	}
-	for _, c := range res.GetInstalledChaincodes() {
-		if c.GetLabel() == label {
-			return c.GetPackageId(), nil
+	return hasPackage(res.GetInstalledChaincodes(), id), nil
+}
+
+func hasPackage(installed []*lb.QueryInstalledChaincodesResult_InstalledChaincode, id string) bool {
+	for _, c := range installed {
+		if c.GetPackageId() == id {
+			return true
 		}
 	}
-	return "", nil
+	return false
 }
 
 // Install installs each chaincode on every peer and defines it on the
@@ -112,7 +123,7 @@ func (n *Network) Install(ctx context.Context, o InstallOptions) error {
 		if err != nil {
 			return err
 		}
-		installed := pkgFile{label: label, bytes: pkg}
+		installed := pkgFile{label: label, id: cc.PackageID(label, pkg), bytes: pkg}
 		if err = n.forEachPeer(func(org, peer int) error { return n.installOn(ctx, org, peer, installed) }); err != nil {
 			return err
 		}
@@ -129,6 +140,7 @@ func (n *Network) Install(ctx context.Context, o InstallOptions) error {
 			ApplicationPolicy: policy,
 			InitRequired:      o.InitRequired,
 			Collections:       collections,
+			PackageID:         installed.id,
 		}
 		if err := n.forEachOrg(func(org, peer int) error { return n.approve(ctx, org, peer, def) }); err != nil {
 			return err
@@ -147,9 +159,10 @@ func (n *Network) Install(ctx context.Context, o InstallOptions) error {
 	return nil
 }
 
-// pkgFile is a chaincode package and its label.
+// pkgFile is a chaincode package, its label and its package ID.
 type pkgFile struct {
 	label string
+	id    string
 	bytes []byte
 }
 
@@ -159,16 +172,15 @@ func (n *Network) installOn(ctx context.Context, org, peer int, f pkgFile) error
 	if err != nil {
 		return err
 	}
-	defer p.Close()
 	return n.retry(ctx, "install "+label+" on "+p.host, func() error {
 		qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		id, err := installedID(qctx, p, label)
+		ok, err := isInstalled(qctx, p, f.id)
 		if err != nil {
 			return err
 		}
-		if id != "" {
-			n.printf("Chaincode %s already installed on %s\n", label, p.host)
+		if ok {
+			n.printf("Chaincode %s already installed on %s\n", f.id, p.host)
 			return nil
 		}
 		n.printf("Installing chaincode %s on %s...\n", label, p.host)
@@ -193,15 +205,30 @@ func (n *Network) nextSequence(ctx context.Context, channelID, name string) (int
 	if err != nil {
 		return 0, err
 	}
-	defer p.Close()
-	qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	res, err := chaincode.NewGateway(p.conn, p.id).QueryCommittedWithName(qctx, channelID, name)
-	if err != nil {
-		// The peer answers an error for a chaincode that is not defined.
-		return 1, nil
-	}
-	return res.GetSequence() + 1, nil
+	var seq int64
+	err = n.retry(ctx, "query committed "+name+" on "+p.host, func() error {
+		qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		res, qerr := chaincode.NewGateway(p.conn, p.id).QueryCommittedWithName(qctx, channelID, name)
+		switch {
+		case qerr == nil:
+			seq = res.GetSequence() + 1
+		case committedNotDefined(qerr, name):
+			seq = 1
+		default:
+			return qerr
+		}
+		return nil
+	})
+	return seq, err
+}
+
+// committedNotDefined reports whether err is the peer's answer for a
+// chaincode with no committed definition. The gateway passes the
+// _lifecycle error only as text, so match the text Fabric writes
+// (lifecycle.ErrNamespaceNotDefined).
+func committedNotDefined(err error, name string) bool {
+	return strings.Contains(err.Error(), "namespace "+name+" is not defined")
 }
 
 func (n *Network) readiness(ctx context.Context, p *peerConn, def *chaincode.Definition) (map[string]bool, error) {
@@ -214,27 +241,16 @@ func (n *Network) readiness(ctx context.Context, p *peerConn, def *chaincode.Def
 	return res.GetApprovals(), nil
 }
 
-// approve approves def for the org of peer, with the package ID of the
-// package generatecc labelled <name>-<version>.
+// approve approves def, which names the installed package, for the org of
+// peer.
 func (n *Network) approve(ctx context.Context, org, peer int, def *chaincode.Definition) error {
-	label := cc.Label(def.Name, def.Version)
 	p, err := n.dialPeer(org, peer)
 	if err != nil {
 		return err
 	}
-	defer p.Close()
-	qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	id, err := installedID(qctx, p, label)
-	if err != nil {
-		return err
-	}
-	if id == "" {
-		return fmt.Errorf("%s: chaincode %s is not installed", p.host, label)
-	}
 	d := *def
-	d.PackageID = id
-	if approvals, err := n.readiness(ctx, p, &d); err == nil && approvals[p.id.MspID()] {
+	id := d.PackageID
+	if approvals, rerr := n.readiness(ctx, p, &d); rerr == nil && approvals[p.id.MspID()] {
 		n.printf("Chaincode already approved for %s\n", p.id.MspID())
 		return nil
 	}
@@ -253,7 +269,6 @@ func (n *Network) waitReady(ctx context.Context, org, peer int, def *chaincode.D
 	if err != nil {
 		return err
 	}
-	defer p.Close()
 	return n.retry(ctx, "commit readiness on "+p.host, func() error {
 		approvals, err := n.readiness(ctx, p, def)
 		if err != nil {
@@ -274,7 +289,6 @@ func (n *Network) commit(ctx context.Context, def *chaincode.Definition) error {
 	if err != nil {
 		return err
 	}
-	defer p.Close()
 	n.printf("Committing chaincode definition %s %s sequence %d...\n", def.Name, def.Version, def.Sequence)
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -290,7 +304,6 @@ func (n *Network) waitCommitted(ctx context.Context, org, peer int, def *chainco
 	if err != nil {
 		return err
 	}
-	defer p.Close()
 	return n.retry(ctx, "committed definition on "+p.host, func() error {
 		qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()

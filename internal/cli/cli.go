@@ -362,6 +362,7 @@ func (e *env) withAdmin(p *compose.Project, f func(*admin.Network) error) error 
 	if err != nil {
 		return err
 	}
+	defer n.Close()
 	return f(n)
 }
 
@@ -384,6 +385,12 @@ type ccArgs struct {
 }
 
 func (e *env) chaincodeArgs(cmd *command) (ccArgs, error) {
+	names := strings.Fields(e.pos["cc_variants"])
+	if len(names) == 0 {
+		// The callers act on an empty list (generatecc skips, install
+		// refuses) before they need the other arguments, as byfn.sh did.
+		return ccArgs{}, nil
+	}
 	var missing []string
 	for _, k := range []string{"cc_name", "cc_version", "cc_path"} {
 		if e.pos[k] == "" {
@@ -396,7 +403,7 @@ func (e *env) chaincodeArgs(cmd *command) (ccArgs, error) {
 	return ccArgs{
 		version: e.pos["cc_version"],
 		path:    e.localPath(e.pos["cc_path"]),
-		names:   strings.Fields(e.pos["cc_variants"]),
+		names:   names,
 	}, nil
 }
 

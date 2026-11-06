@@ -208,3 +208,12 @@ func TestResolveImageTags(t *testing.T) {
 	_, err = resolveImageTags(env(map[string]string{"FNB_IMAGETAG": "2.4.9"}))
 	require.ErrorContains(t, err, "2.5 and later")
 }
+
+// byfn.sh skipped generatecc for an empty variant list whatever the other
+// arguments were, and consumer Makefiles pass empty names then.
+func TestGenerateccEmptyVariantsSkipsFirst(t *testing.T) {
+	t.Chdir(t.TempDir())
+	code, out, errOut := runCLI(t, "", "-f", "generatecc", "", "v", "", "")
+	assert.Equal(t, 0, code, errOut)
+	assert.Contains(t, out, "No chaincodes to generate")
+}

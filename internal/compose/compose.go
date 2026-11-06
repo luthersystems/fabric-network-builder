@@ -216,13 +216,15 @@ func (p *Project) Route(ctx context.Context) (*Route, error) {
 			// The node containers are named after their host names
 			// (container_name). Fall back to the name, which the Docker DNS
 			// resolves inside the network.
+			// Cache only a found address, so a retry after a failed lookup
+			// (a container not yet on the network) looks again.
 			ip = host
 			if c, err := p.client().ContainerInspect(ctx, host); err == nil {
 				if ep, ok := c.NetworkSettings.Networks[netName]; ok && ep.IPAddress != "" {
 					ip = ep.IPAddress
+					ips[host] = ip
 				}
 			}
-			ips[host] = ip
 		}
 		return fmt.Sprintf("%s:%d", ip, port)
 	}
