@@ -353,3 +353,61 @@ func TestAnsibleVars(t *testing.T) {
 	assert.Contains(t, names, "channel-artifacts/", "directory entries, as zip -r writes")
 	assert.Contains(t, names, "channel-artifacts/genesis.block")
 }
+
+// ansible-vars --generate-from does all of the mars sandbox template's
+// fabric/fnb-gen.sh, so the ui-core certs step can run the builder with no
+// shell: it reads the network size from the Ansible env file, generates the
+// network unless crypto-config exists (or --force), then writes the
+// variables.
+func TestAnsibleVarsGenerateFrom(t *testing.T) {
+	t.Chdir(t.TempDir())
+	env := `# mars env
+project_id: abc
+num_orgs: 1
+num_peers: 2
+num_orderers: 1
+k8s_fabric_network_domain_root: "net.example"
+`
+	require.NoError(t, os.WriteFile("env.yaml", []byte(env), 0o600))
+	code, _, errOut := runCLI(t, "", "ansible-vars", "--generate-from", "env.yaml", "-o", "fabric.yaml")
+	require.Equal(t, 0, code, errOut)
+	assert.DirExists(t, "crypto-config/peerOrganizations/org1.net.example/peers/peer1.org1.net.example")
+	assert.NoDirExists(t, "crypto-config/peerOrganizations/org2.net.example")
+	assert.FileExists(t, "channel-artifacts/genesis.block")
+	first, err := os.ReadFile("fabric.yaml")
+	require.NoError(t, err)
+	vars := map[string]string{}
+	require.NoError(t, yaml.Unmarshal(first, &vars))
+	assert.Len(t, vars, 3)
+
+	key := "crypto-config/ordererOrganizations/net.example/ca/ca.net.example-cert.pem"
+	ca, err := os.ReadFile(key)
+	require.NoError(t, err)
+
+	// crypto-config exists: no new network, as fnb-gen.sh skipped.
+	code, _, errOut = runCLI(t, "", "ansible-vars", "--generate-from", "env.yaml", "-o", "fabric.yaml")
+	require.Equal(t, 0, code, errOut)
+	again, err := os.ReadFile(key)
+	require.NoError(t, err)
+	assert.Equal(t, ca, again)
+
+	// --force makes a new network.
+	code, _, errOut = runCLI(t, "", "--force", "ansible-vars", "--generate-from", "env.yaml", "-o", "fabric.yaml")
+	require.Equal(t, 0, code, errOut)
+	again, err = os.ReadFile(key)
+	require.NoError(t, err)
+	assert.NotEqual(t, ca, again)
+}
+
+func TestAnsibleVarsGenerateFromMissingField(t *testing.T) {
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.WriteFile("env.yaml", []byte("num_orgs: 1\nnum_peers: 1\nnum_orderers:\n"), 0o600))
+	code, _, errOut := runCLI(t, "", "ansible-vars", "--generate-from", "env.yaml")
+	assert.Equal(t, 1, code)
+	assert.Contains(t, errOut, "num_orderers")
+	assert.NoDirExists(t, "crypto-config")
+
+	code, _, errOut = runCLI(t, "", "ansible-vars", "--generate-from", "missing.yaml")
+	assert.Equal(t, 1, code)
+	assert.Contains(t, errOut, "missing.yaml")
+}
