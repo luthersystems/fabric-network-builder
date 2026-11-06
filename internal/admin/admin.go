@@ -34,11 +34,11 @@ type Resolver func(host string, port int) string
 
 // Network is a running network and the material to administer it.
 type Network struct {
-	// Dir is the project directory.
-	Dir     string
+	Out     io.Writer
 	Vars    *network.Vars
 	Resolve Resolver
-	Out     io.Writer
+	// Dir is the project directory.
+	Dir string
 	// Delay is the wait between retries.
 	Delay time.Duration
 	// Retries is the number of attempts of each retried step.
@@ -145,9 +145,9 @@ func signer(mspID, adminDir string) (identity.SigningIdentity, error) {
 // The peers require a TLS client certificate from their own org's TLS CA,
 // so the connection uses the org admin's TLS client certificate.
 type peerConn struct {
-	host string
-	conn *grpc.ClientConn
 	id   identity.SigningIdentity
+	conn *grpc.ClientConn
+	host string
 }
 
 func (n *Network) dialPeer(org, peer int) (*peerConn, error) {

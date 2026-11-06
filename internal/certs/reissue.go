@@ -12,22 +12,22 @@ import (
 
 // ReissueOptions select the leaves to renew and how.
 type ReissueOptions struct {
+	// Now is the current time; zero means time.Now.
+	Now          time.Time
 	CryptoConfig string
 	// Type is signcert, tls or both.
 	Type string
 	// Nodes renews the named nodes. A short name (peer1) matches at a
 	// dotted boundary, so peer1 does not match peer10.
-	Nodes      []string
-	AllExpired bool
-	All        bool
+	Nodes []string
 	// Days is the new validity from now, capped at the CA's expiry. Zero
 	// means up to the CA's expiry.
-	Days     int
-	DaysSet  bool
-	DryRun   bool
-	NoBackup bool
-	// Now is the current time; zero means time.Now.
-	Now time.Time
+	Days       int
+	AllExpired bool
+	All        bool
+	DaysSet    bool
+	DryRun     bool
+	NoBackup   bool
 }
 
 func nodeMatches(node string, patterns []string) bool {
@@ -141,10 +141,11 @@ func Reissue(o ReissueOptions, out io.Writer) error {
 }
 
 func reissueOne(l *Leaf, o ReissueOptions, now time.Time, out io.Writer) error {
-	ca, caKey, err := ResolveCA(l.CADir, l.Cert)
+	issuer, err := ResolveCA(l.CADir, l.Cert)
 	if err != nil {
 		return err
 	}
+	ca, caKey := issuer.Cert, issuer.Key
 	caExpiry := ca.NotAfter.UTC()
 	if !caExpiry.After(now) {
 		return reissueErrorf("issuing CA expired %s - renew the CA and update channel config (out of scope for reissue)",
@@ -183,7 +184,8 @@ func reissueOne(l *Leaf, o ReissueOptions, now time.Time, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(BackupPath(l.CertPath), old, fi.Mode().Perm()); err != nil {
+		// The path is the leaf's own file, found by Discover in the tree.
+		if err := os.WriteFile(BackupPath(l.CertPath), old, fi.Mode().Perm()); err != nil { //nolint:gosec // see above
 			return err
 		}
 	}

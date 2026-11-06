@@ -23,20 +23,28 @@ import (
 // env is one run of the command line.
 type env struct {
 	ctx     context.Context
-	dir     string
 	in      io.Reader
 	out     io.Writer
-	channel string
-	force   bool
-	storage string
 	owner   *owner
 	v       *values
 	pos     map[string]string
+	dir     string
+	channel string
+	storage string
+	force   bool
+}
+
+// Streams are the standard streams of a run.
+type Streams struct {
+	In  io.Reader
+	Out io.Writer
+	Err io.Writer
 }
 
 // Run runs the command line args and returns the exit code.
-func Run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer) int {
-	cmd, pos, v, err := parse(globals, commands, args)
+func Run(ctx context.Context, args []string, s Streams) int {
+	in, out, errOut := s.In, s.Out, s.Err
+	inv, err := parse(globals, commands, args)
 	var help errHelp
 	if errors.As(err, &help) {
 		printUsage(out, globals, commands, help.cmd)
@@ -52,6 +60,7 @@ func Run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		_, _ = fmt.Fprintf(errOut, "%s: error: %v\n", prog, err)
 		return 2
 	}
+	cmd, v := inv.cmd, inv.v
 	o, err := parseChown(v.str("chown", ""))
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "%s: error: %v\n", prog, err)
@@ -67,7 +76,7 @@ func Run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		storage: v.str("storage", ""),
 		owner:   o,
 		v:       v,
-		pos:     pos,
+		pos:     inv.pos,
 	}
 	run := map[*command]func() error{
 		cmdGenerate:    e.generate,
@@ -79,7 +88,7 @@ func Run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		cmdCertExpires: e.certExpiries,
 		cmdReissue:     e.reissue,
 	}[cmd]
-	if err := run(); err != nil {
+	if err = run(); err != nil {
 		var ue *usageError
 		if errors.As(err, &ue) {
 			printUsage(errOut, globals, commands, ue.cmd)
@@ -300,7 +309,13 @@ func (e *env) loadProject(ccVersion string) (*compose.Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	return compose.Load(e.ctx, dir, projectName(), e.composeFiles(), envVars, e.out)
+	return compose.Load(e.ctx, compose.Options{
+		Dir:   dir,
+		Name:  projectName(),
+		Files: e.composeFiles(),
+		Env:   envVars,
+		Out:   e.out,
+	})
 }
 
 func (e *env) up() error {
@@ -315,35 +330,39 @@ func (e *env) up() error {
 		return err
 	}
 	defer func() { _ = p.Close() }()
-	if err := p.Up(e.ctx); err != nil {
+	if err = p.Up(e.ctx); err != nil {
 		return fmt.Errorf("unable to start network: %w", err)
 	}
-	n, leave, err := e.admin(p)
+	err = e.withAdmin(p, func(n *admin.Network) error {
+		if cerr := n.CreateChannel(e.ctx, e.channel); cerr != nil {
+			return fmt.Errorf("unable to create channel %s: %w", e.channel, cerr)
+		}
+		if jerr := n.JoinPeers(e.ctx, e.channel); jerr != nil {
+			return fmt.Errorf("unable to join channel %s: %w", e.channel, jerr)
+		}
+		return nil
+	})
 	if err != nil {
 		return err
-	}
-	defer leave()
-	if err := n.CreateChannel(e.ctx, e.channel); err != nil {
-		return fmt.Errorf("unable to create channel %s: %w", e.channel, err)
-	}
-	if err := n.JoinPeers(e.ctx, e.channel); err != nil {
-		return fmt.Errorf("unable to join channel %s: %w", e.channel, err)
 	}
 	e.printf("Network joined channel %s and is ready for chaincode installation\n", e.channel)
 	return nil
 }
 
-func (e *env) admin(p *compose.Project) (*admin.Network, func(), error) {
-	resolve, leave, err := p.Resolver(e.ctx)
+// withAdmin runs f with an admin client of the running network. The route
+// to the nodes is open only while f runs: in a container, the builder
+// leaves the network after, so a later `down` can remove it.
+func (e *env) withAdmin(p *compose.Project, f func(*admin.Network) error) error {
+	route, err := p.Route(e.ctx)
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
-	n, err := admin.New(e.dir, resolve, e.out)
+	defer route.Close()
+	n, err := admin.New(e.dir, route.Resolve, e.out)
 	if err != nil {
-		leave()
-		return nil, nil, err
+		return err
 	}
-	return n, leave, nil
+	return f(n)
 }
 
 // localPath maps a chaincode path the consumers pass as the cli
@@ -356,7 +375,15 @@ func (e *env) localPath(p string) string {
 	return e.path(p)
 }
 
-func (e *env) chaincodeArgs(cmd *command) (version string, names []string, path string, err error) {
+// ccArgs are the positionals of install and generatecc.
+type ccArgs struct {
+	version string
+	// path is the package path in the project directory.
+	path  string
+	names []string
+}
+
+func (e *env) chaincodeArgs(cmd *command) (ccArgs, error) {
 	var missing []string
 	for _, k := range []string{"cc_name", "cc_version", "cc_path"} {
 		if e.pos[k] == "" {
@@ -364,20 +391,24 @@ func (e *env) chaincodeArgs(cmd *command) (version string, names []string, path 
 		}
 	}
 	if len(missing) > 0 {
-		return "", nil, "", usagef(cmd, "empty %s", strings.Join(missing, ", "))
+		return ccArgs{}, usagef(cmd, "empty %s", strings.Join(missing, ", "))
 	}
-	return e.pos["cc_version"], strings.Fields(e.pos["cc_variants"]), e.localPath(e.pos["cc_path"]), nil
+	return ccArgs{
+		version: e.pos["cc_version"],
+		path:    e.localPath(e.pos["cc_path"]),
+		names:   strings.Fields(e.pos["cc_variants"]),
+	}, nil
 }
 
 func (e *env) install() error {
 	if err := e.announce("Installing chaincode tar.gz package"); err != nil {
 		return err
 	}
-	version, names, path, err := e.chaincodeArgs(cmdInstall)
+	a, err := e.chaincodeArgs(cmdInstall)
 	if err != nil {
 		return err
 	}
-	if len(names) == 0 {
+	if len(a.names) == 0 {
 		return usagef(cmdInstall, "empty cc_variants: no chaincode names")
 	}
 	p, err := e.loadProject("")
@@ -385,17 +416,14 @@ func (e *env) install() error {
 		return err
 	}
 	defer func() { _ = p.Close() }()
-	n, leave, err := e.admin(p)
-	if err != nil {
-		return err
-	}
-	defer leave()
-	return n.Install(e.ctx, admin.InstallOptions{
-		Channel:      e.channel,
-		Names:        names,
-		Version:      version,
-		PackageDir:   filepath.Dir(path),
-		InitRequired: e.v.boolean("init_required", false),
+	return e.withAdmin(p, func(n *admin.Network) error {
+		return n.Install(e.ctx, admin.InstallOptions{
+			Channel:      e.channel,
+			Names:        a.names,
+			Version:      a.version,
+			PackageDir:   filepath.Dir(a.path),
+			InitRequired: e.v.boolean("init_required", false),
+		})
 	})
 }
 
@@ -434,10 +462,11 @@ func (e *env) generatecc() error {
 	if err := e.announce("Generating chaincode package"); err != nil {
 		return err
 	}
-	version, names, path, err := e.chaincodeArgs(cmdGeneratecc)
+	a, err := e.chaincodeArgs(cmdGeneratecc)
 	if err != nil {
 		return err
 	}
+	names := a.names
 	if len(names) == 0 {
 		e.printf("No chaincodes to generate, skipping...\n")
 		e.printf("skipping ccaas compose file...\n")
@@ -448,11 +477,11 @@ func (e *env) generatecc() error {
 		return err
 	}
 	for _, name := range names {
-		pkg, err := chaincode.Build(path, name, version, ccaas)
-		if err != nil {
-			return err
+		pkg, berr := chaincode.Build(a.path, name, a.version, ccaas)
+		if berr != nil {
+			return berr
 		}
-		if err := pkg.Write(); err != nil {
+		if err = pkg.Write(); err != nil {
 			return err
 		}
 		e.printf("generated %s: %s\n", pkg.Path, pkg.ID)
@@ -478,7 +507,7 @@ func (e *env) generatecc() error {
 		return err
 	}
 	dest := e.path("docker-compose-ccaas.yaml")
-	if err := os.WriteFile(dest, b, 0o644); err != nil { //nolint:gosec // compose file
+	if err = os.WriteFile(dest, b, 0o644); err != nil { //nolint:gosec // compose file
 		return err
 	}
 	return e.owner.chown(dest)
@@ -493,10 +522,10 @@ func (e *env) down() error {
 		return err
 	}
 	defer func() { _ = p.Close() }()
-	if err := p.Down(e.ctx); err != nil {
+	if err = p.Down(e.ctx); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(e.path("ledgers-backup")); err != nil {
+	if err = os.RemoveAll(e.path("ledgers-backup")); err != nil {
 		return err
 	}
 	return p.RemoveChaincodeContainers(e.ctx)

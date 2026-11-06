@@ -9,14 +9,14 @@ import (
 
 func mustParse(t *testing.T, args ...string) (*command, map[string]string, *values) {
 	t.Helper()
-	cmd, pos, v, err := parse(globals, commands, args)
+	inv, err := parse(globals, commands, args)
 	require.NoError(t, err)
-	return cmd, pos, v
+	return inv.cmd, inv.pos, inv.v
 }
 
 func parseErr(t *testing.T, args ...string) string {
 	t.Helper()
-	_, _, _, err := parse(globals, commands, args)
+	_, err := parse(globals, commands, args)
 	require.Error(t, err)
 	return err.Error()
 }
@@ -89,7 +89,7 @@ func TestErrors(t *testing.T) {
 	assert.Contains(t, parseErr(t, "down", "extra"), "unrecognized arguments: extra")
 	assert.Contains(t, parseErr(t, "generate", "--force"), "unrecognized arguments: --force", "a global option after the command")
 	assert.Contains(t, parseErr(t, "generate", "--template=x"), "ignored explicit argument")
-	_, _, _, err := parse(globals, commands, []string{"generate", "-h"})
+	_, err := parse(globals, commands, []string{"generate", "-h"})
 	var h errHelp
 	require.ErrorAs(t, err, &h)
 	assert.Equal(t, cmdGenerate, h.cmd)

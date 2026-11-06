@@ -18,12 +18,12 @@ import (
 
 // InstallOptions select the chaincodes to install and define.
 type InstallOptions struct {
-	Channel string
+	Channel    string
+	Version    string
+	PackageDir string
 	// Names are the chaincode names; each has a package <label>.tar.gz in
 	// PackageDir, which generatecc wrote.
 	Names        []string
-	Version      string
-	PackageDir   string
 	InitRequired bool
 }
 
@@ -112,7 +112,8 @@ func (n *Network) Install(ctx context.Context, o InstallOptions) error {
 		if err != nil {
 			return err
 		}
-		if err := n.forEachPeer(func(org, peer int) error { return n.installOn(ctx, org, peer, label, pkg) }); err != nil {
+		installed := pkgFile{label: label, bytes: pkg}
+		if err = n.forEachPeer(func(org, peer int) error { return n.installOn(ctx, org, peer, installed) }); err != nil {
 			return err
 		}
 		seq, err := n.nextSequence(ctx, o.Channel, name)
@@ -129,7 +130,7 @@ func (n *Network) Install(ctx context.Context, o InstallOptions) error {
 			InitRequired:      o.InitRequired,
 			Collections:       collections,
 		}
-		if err := n.forEachOrg(func(org, peer int) error { return n.approve(ctx, org, peer, label, def) }); err != nil {
+		if err := n.forEachOrg(func(org, peer int) error { return n.approve(ctx, org, peer, def) }); err != nil {
 			return err
 		}
 		if err := n.forEachOrg(func(org, peer int) error { return n.waitReady(ctx, org, peer, def) }); err != nil {
@@ -146,7 +147,14 @@ func (n *Network) Install(ctx context.Context, o InstallOptions) error {
 	return nil
 }
 
-func (n *Network) installOn(ctx context.Context, org, peer int, label string, pkg []byte) error {
+// pkgFile is a chaincode package and its label.
+type pkgFile struct {
+	label string
+	bytes []byte
+}
+
+func (n *Network) installOn(ctx context.Context, org, peer int, f pkgFile) error {
+	label, pkg := f.label, f.bytes
 	p, err := n.dialPeer(org, peer)
 	if err != nil {
 		return err
@@ -191,7 +199,7 @@ func (n *Network) nextSequence(ctx context.Context, channelID, name string) (int
 	res, err := chaincode.NewGateway(p.conn, p.id).QueryCommittedWithName(qctx, channelID, name)
 	if err != nil {
 		// The peer answers an error for a chaincode that is not defined.
-		return 1, nil //nolint:nilerr // not defined: the first sequence
+		return 1, nil
 	}
 	return res.GetSequence() + 1, nil
 }
@@ -206,7 +214,10 @@ func (n *Network) readiness(ctx context.Context, p *peerConn, def *chaincode.Def
 	return res.GetApprovals(), nil
 }
 
-func (n *Network) approve(ctx context.Context, org, peer int, label string, def *chaincode.Definition) error {
+// approve approves def for the org of peer, with the package ID of the
+// package generatecc labelled <name>-<version>.
+func (n *Network) approve(ctx context.Context, org, peer int, def *chaincode.Definition) error {
+	label := cc.Label(def.Name, def.Version)
 	p, err := n.dialPeer(org, peer)
 	if err != nil {
 		return err

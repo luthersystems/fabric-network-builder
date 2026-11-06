@@ -24,18 +24,18 @@ type Options struct {
 	CCName            string
 	DomainName        string
 	ConnectDomainName string
-	EnableNodeOUs     bool
+	PrivateStructure  string
+	OrdererType       string
+	OrdererSANDomains []string
+	PeerSANDomains    []string
 	OrgCount          int
 	PeerCount         int
 	MinEndorsers      int
-	PrivateStructure  string
 	ReqPeerCount      int
 	MaxPeerCount      int
 	ExecuteTimeout    int
-	OrdererType       string
 	OrdererCount      int
-	OrdererSANDomains []string
-	PeerSANDomains    []string
+	EnableNodeOUs     bool
 }
 
 // DefaultOptions returns the defaults of `generate`, the same as the Python
@@ -58,8 +58,6 @@ func DefaultOptions() Options {
 
 // Orderer is one orderer node.
 type Orderer struct {
-	// Index is the orderer's number, from 0.
-	Index int
 	// Host is the name peers and clients connect to (the connect domain).
 	Host string
 	// Dir is the node's directory name under crypto-config (the domain).
@@ -68,6 +66,8 @@ type Orderer struct {
 	Port string
 	// HostPort is the orderer's port on the host: 7050, 8050, 9050, ...
 	HostPort string
+	// Index is the orderer's number, from 0.
+	Index int
 }
 
 // Org is one peer organization.
@@ -103,13 +103,13 @@ type Collection struct {
 
 // Network is the computed network: the data the templates render.
 type Network struct {
-	Options
+	EndorsementPolicy string
 	Orgs              []Org
 	PeerIndices       []string
 	Orderers          []Orderer
 	PeerPorts         []PeerPort
-	EndorsementPolicy string
 	Collections       []Collection
+	Options
 }
 
 // New computes the network for opts.

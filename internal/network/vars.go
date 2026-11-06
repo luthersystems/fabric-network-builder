@@ -18,10 +18,10 @@ import (
 // the shell scripts did, because generate's options are not passed again.
 type Vars struct {
 	DomainName        string
+	EndorsementPolicy string
 	OrgIndices        []int
 	PeerIndices       []int
 	OrdererIndices    []int
-	EndorsementPolicy string
 }
 
 var (

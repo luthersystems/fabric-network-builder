@@ -55,7 +55,7 @@ func (n *Network) ordererActive(ctx context.Context, c *http.Client, host, chann
 	if err != nil {
 		return false, err
 	}
-	resp, err := c.Do(req) //nolint:gosec // the URL is the network's own orderer
+	resp, err := c.Do(req)
 	if err != nil {
 		return false, err
 	}
@@ -75,17 +75,18 @@ func (n *Network) ordererActive(ctx context.Context, c *http.Client, host, chann
 	return info.Status == "active", nil
 }
 
-func (n *Network) ordererJoin(ctx context.Context, c *http.Client, host, channelID string, block []byte) error {
+// ordererJoin posts the genesis block; the block names the channel.
+func (n *Network) ordererJoin(ctx context.Context, c *http.Client, host string, block []byte) error {
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	part, err := w.CreateFormFile("config-block", "config.block")
 	if err != nil {
 		return err
 	}
-	if _, err := part.Write(block); err != nil {
+	if _, err = part.Write(block); err != nil {
 		return err
 	}
-	if err := w.Close(); err != nil {
+	if err = w.Close(); err != nil {
 		return err
 	}
 	url := fmt.Sprintf("https://%s/participation/v1/channels", n.Resolve(host, 7053))
@@ -94,7 +95,7 @@ func (n *Network) ordererJoin(ctx context.Context, c *http.Client, host, channel
 		return err
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
-	resp, err := c.Do(req) //nolint:gosec // the URL is the network's own orderer
+	resp, err := c.Do(req)
 	if err != nil {
 		return err
 	}
@@ -124,16 +125,16 @@ func (n *Network) CreateChannel(ctx context.Context, channelID string) error {
 		}
 		joined := false
 		err = n.retry(ctx, host+" join "+channelID, func() error {
-			active, err := n.ordererActive(ctx, c, host, channelID)
-			if err != nil {
-				return err
+			active, aerr := n.ordererActive(ctx, c, host, channelID)
+			if aerr != nil {
+				return aerr
 			}
 			if active {
 				n.printf("%s is already a member of %s\n", host, channelID)
 				return nil
 			}
-			if err := n.ordererJoin(ctx, c, host, channelID, block); err != nil {
-				return err
+			if jerr := n.ordererJoin(ctx, c, host, block); jerr != nil {
+				return jerr
 			}
 			joined = true
 			return nil

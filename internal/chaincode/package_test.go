@@ -6,10 +6,10 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,7 +24,7 @@ func untar(t *testing.T, b []byte) map[string][]byte {
 	out := map[string][]byte{}
 	for {
 		h, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return out
 		}
 		require.NoError(t, err)
@@ -102,5 +102,5 @@ func TestGoPackageErrors(t *testing.T) {
 	require.ErrorContains(t, err, "no code.tar.gz")
 	_, err = Build(filepath.Join(dir, "missing.tar.gz"), "cc", "v1", false)
 	require.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "missing.tar.gz"))
+	assert.Contains(t, err.Error(), "missing.tar.gz")
 }
