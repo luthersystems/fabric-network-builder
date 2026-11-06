@@ -25,13 +25,10 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/flags"
-	"github.com/docker/compose/v2/pkg/api"
-	composesvc "github.com/docker/compose/v2/pkg/compose"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
+	"github.com/docker/compose/v5/pkg/api"
+	composesvc "github.com/docker/compose/v5/pkg/compose"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 )
 
 // NetworkKey is the compose network the nodes share.
@@ -108,9 +105,15 @@ func Load(ctx context.Context, o Options) (*Project, error) {
 		}
 		project.Services[name] = s
 	}
+	// Answer yes to every prompt, as `docker compose up -y` does: the
+	// builder runs without a terminal, and a prompt must not block it.
+	service, err := composesvc.NewComposeService(dockerCli, composesvc.WithPrompt(func(string, bool) (bool, error) { return true, nil }))
+	if err != nil {
+		return nil, err
+	}
 	return &Project{
 		dockerCli: dockerCli,
-		service:   composesvc.NewComposeService(dockerCli),
+		service:   service,
 		project:   project,
 		out:       out,
 	}, nil
@@ -122,7 +125,6 @@ func (p *Project) Up(ctx context.Context) error {
 		Create: api.CreateOptions{
 			Recreate:             api.RecreateDiverged,
 			RecreateDependencies: api.RecreateDiverged,
-			AssumeYes:            true,
 		},
 		Start: api.StartOptions{Project: p.project},
 	})
@@ -161,7 +163,8 @@ func (p *Project) runningNetwork(ctx context.Context) (string, error) {
 		if cname == "" {
 			continue
 		}
-		c, ierr := p.client().ContainerInspect(ctx, cname)
+		r, ierr := p.client().ContainerInspect(ctx, cname, client.ContainerInspectOptions{})
+		c := r.Container
 		if ierr != nil || c.NetworkSettings == nil {
 			continue
 		}
@@ -194,7 +197,7 @@ func (p *Project) selfContainer(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	c, err := p.client().ContainerInspect(ctx, host)
+	r, err := p.client().ContainerInspect(ctx, host, client.ContainerInspectOptions{})
 	if cerrdefs.IsNotFound(err) {
 		// A container with another host name, or another daemon.
 		return "", nil
@@ -202,7 +205,7 @@ func (p *Project) selfContainer(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return c.ID, nil
+	return r.Container.ID, nil
 }
 
 // A Route takes the builder to the nodes of the network.
@@ -230,17 +233,17 @@ func (p *Project) Route(ctx context.Context) (*Route, error) {
 		return nil, err
 	}
 	if self != "" {
-		c, ierr := p.client().ContainerInspect(ctx, self)
+		r, ierr := p.client().ContainerInspect(ctx, self, client.ContainerInspectOptions{})
 		if ierr != nil {
 			return nil, ierr
 		}
-		if _, ok := c.NetworkSettings.Networks[netName]; !ok {
-			if err = p.client().NetworkConnect(ctx, netName, self, &network.EndpointSettings{}); err != nil {
+		if _, ok := r.Container.NetworkSettings.Networks[netName]; !ok {
+			if _, err = p.client().NetworkConnect(ctx, netName, client.NetworkConnectOptions{Container: self, EndpointConfig: &network.EndpointSettings{}}); err != nil {
 				return nil, fmt.Errorf("join network %s: %w", netName, err)
 			}
 			leave = func() {
 				// Use a fresh context: the caller's may be done.
-				_ = p.client().NetworkDisconnect(context.Background(), netName, self, true)
+				_, _ = p.client().NetworkDisconnect(context.Background(), netName, client.NetworkDisconnectOptions{Container: self, Force: true})
 			}
 		}
 	}
@@ -257,9 +260,9 @@ func (p *Project) Route(ctx context.Context) (*Route, error) {
 			// Cache only a found address, so a retry after a failed lookup
 			// (a container not yet on the network) looks again.
 			ip = host
-			if c, err := p.client().ContainerInspect(ctx, host); err == nil {
-				if ep, ok := c.NetworkSettings.Networks[netName]; ok && ep.IPAddress != "" {
-					ip = ep.IPAddress
+			if r, err := p.client().ContainerInspect(ctx, host, client.ContainerInspectOptions{}); err == nil && r.Container.NetworkSettings != nil {
+				if ep, ok := r.Container.NetworkSettings.Networks[netName]; ok && ep.IPAddress.IsValid() {
+					ip = ep.IPAddress.String()
 					ips[host] = ip
 				}
 			}
@@ -279,28 +282,29 @@ var devPeer = regexp.MustCompile(`^/?dev-peer\d+\.`)
 // or "peer<n>-", which could remove images of other projects, so that is
 // gone.
 func (p *Project) RemoveChaincodeContainers(ctx context.Context) error {
-	cs, err := p.client().ContainerList(ctx, container.ListOptions{All: true, Filters: filters.NewArgs(filters.Arg("name", "dev-peer"))})
+	cs, err := p.client().ContainerList(ctx, client.ContainerListOptions{All: true, Filters: make(client.Filters).Add("name", "dev-peer")})
 	if err != nil {
 		return err
 	}
 	var errs []error
-	for _, c := range cs {
+	for _, c := range cs.Items {
 		if !slices.ContainsFunc(c.Names, devPeer.MatchString) {
 			continue
 		}
 		_, _ = fmt.Fprintf(p.out, "removing container %s\n", strings.TrimPrefix(c.Names[0], "/"))
-		errs = append(errs, p.client().ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true, RemoveVolumes: true}))
+		_, rerr := p.client().ContainerRemove(ctx, c.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		errs = append(errs, rerr)
 	}
-	imgs, err := p.client().ImageList(ctx, image.ListOptions{})
+	imgs, err := p.client().ImageList(ctx, client.ImageListOptions{})
 	if err != nil {
 		return errors.Join(append(errs, err)...)
 	}
-	for _, img := range imgs {
+	for _, img := range imgs.Items {
 		if !slices.ContainsFunc(img.RepoTags, devPeer.MatchString) {
 			continue
 		}
 		_, _ = fmt.Fprintf(p.out, "removing image %s\n", img.RepoTags[0])
-		_, err := p.client().ImageRemove(ctx, img.ID, image.RemoveOptions{Force: true})
+		_, err := p.client().ImageRemove(ctx, img.ID, client.ImageRemoveOptions{Force: true})
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
