@@ -1,6 +1,7 @@
 package render
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,7 +65,7 @@ func TestNetworkMatchesPythonGoldens(t *testing.T) {
 			files, err := Network(n)
 			require.NoError(t, err)
 			dir := t.TempDir()
-			require.NoError(t, Write(dir, files, nil))
+			require.NoError(t, Write(dir, files, nil, io.Discard))
 
 			golden := filepath.Join("testdata", "golden", name)
 			var want []string

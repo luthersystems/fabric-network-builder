@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -213,9 +214,10 @@ func CCaaSCompose(services []CCaaSService) ([]byte, error) {
 	return []byte(s), nil
 }
 
-// Write writes files under dir, creating Dirs first. It calls chown, when
-// not nil, on each directory and file it writes.
-func Write(dir string, files []File, chown func(string) error) error {
+// Write writes files under dir, creating Dirs first, and names each file on
+// out as the Python builder did. It calls chown, when not nil, on each
+// directory and file it writes.
+func Write(dir string, files []File, chown func(string) error, out io.Writer) error {
 	for _, d := range Dirs {
 		p := filepath.Join(dir, d)
 		if err := os.MkdirAll(p, 0o755); err != nil {
@@ -229,7 +231,7 @@ func Write(dir string, files []File, chown func(string) error) error {
 	}
 	for _, f := range files {
 		p := filepath.Join(dir, f.Path)
-		fmt.Printf("rendering %s\n", f.Path)
+		_, _ = fmt.Fprintf(out, "rendering %s\n", f.Path)
 		if err := os.WriteFile(p, f.Content, f.Mode); err != nil {
 			return err
 		}
