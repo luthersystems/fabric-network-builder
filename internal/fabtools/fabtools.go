@@ -55,6 +55,7 @@ func ChannelGenesisBlock(configDir, channelID, outputBlock string) (err error) {
 			err = fmt.Errorf("configtxgen: %v", r)
 		}
 	}()
+	genesisconfig.ForgetCache()
 	profile := genesisconfig.Load(GenesisProfile, configDir)
 	if profile.Orderer == nil {
 		return errors.New("configtxgen: profile has no orderer section")
