@@ -2,7 +2,7 @@ version: '3.7'
 services:
   substrate-peer0:
     image: luthersystems/substrate:$CHAINCODE_VERSION
-    command: ["$CCID_SUBSTRATE"]
+    command: ["substrate-1.0:feed"]
     ports:
       - "9080:8080"
     networks:

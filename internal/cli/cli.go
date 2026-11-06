@@ -548,6 +548,7 @@ func (e *env) generatecc() error {
 	if err != nil {
 		return err
 	}
+	ids := map[string]string{}
 	for _, name := range names {
 		pkg, berr := chaincode.Build(a.path, name, a.version, ccaas)
 		if berr != nil {
@@ -557,6 +558,7 @@ func (e *env) generatecc() error {
 			return err
 		}
 		e.printf("generated %s: %s\n", pkg.Path, pkg.ID)
+		ids[name] = pkg.ID
 	}
 	// The Python builder wrote the compose file for every generatecc, Go
 	// chaincode too; consumers run the CCaaS generatecc last, which
@@ -569,7 +571,7 @@ func (e *env) generatecc() error {
 		}
 		services = append(services, render.CCaaSService{
 			ServiceName: name + "-peer0",
-			CCIDEnvVar:  "CCID_" + strings.ToUpper(name),
+			ChaincodeID: ids[name],
 			Port:        9080 + i,
 			Image:       image,
 		})

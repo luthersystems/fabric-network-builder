@@ -95,9 +95,10 @@ func composeEnv(dir, channel, ccVersion string) (map[string]string, error) {
 }
 
 // chaincodeIDs returns CCID_<NAME> for each chaincodes/*.id file in dir,
-// which generatecc writes: the package ID a CCaaS service needs. NAME is
-// the file name up to its first "-", in upper case, as scripts/env.sh made
-// it for the .env file.
+// which generatecc writes. The builder now writes each package ID into
+// docker-compose-ccaas.yaml; a compose file that v0.0.x wrote has
+// "$CCID_<NAME>" instead. NAME is the file name up to its first "-", in
+// upper case, as scripts/env.sh made it for the .env file.
 func chaincodeIDs(dir string) (map[string]string, error) {
 	files, err := filepath.Glob(filepath.Join(dir, "chaincodes", "*.id"))
 	if err != nil {

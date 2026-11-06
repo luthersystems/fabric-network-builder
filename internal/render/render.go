@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -199,14 +200,25 @@ func Network(n *topology.Network) ([]File, error) {
 // CCaaSService is one chaincode-as-a-service compose service.
 type CCaaSService struct {
 	ServiceName string
-	CCIDEnvVar  string
+	// ChaincodeID is the package ID (<label>:<hash>) that the service gets
+	// as its command.
+	ChaincodeID string
 	Image       string
 	Port        int
 }
 
+// packageID is a Fabric package ID: a label of the characters Fabric
+// allows, ":", and a hash. It needs no quoting in the compose file.
+var packageID = regexp.MustCompile(`^[[:alnum:]][[:alnum:]_.+-]*:[[:xdigit:]]+$`)
+
 // CCaaSCompose renders docker-compose-ccaas.yaml. It has no final newline,
 // as the Python builder wrote it; substrate adds one after generatecc.
 func CCaaSCompose(services []CCaaSService) ([]byte, error) {
+	for _, s := range services {
+		if !packageID.MatchString(s.ChaincodeID) {
+			return nil, fmt.Errorf("%s: %q is not a chaincode package ID", s.ServiceName, s.ChaincodeID)
+		}
+	}
 	s, err := execute("docker-compose-ccaas.yaml", map[string]any{"Chaincodes": services})
 	if err != nil {
 		return nil, err
