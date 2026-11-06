@@ -1,1 +1,0 @@
-fabric-release-linux-amd64-2.5.4.tar.gz filter=lfs diff=lfs merge=lfs -text

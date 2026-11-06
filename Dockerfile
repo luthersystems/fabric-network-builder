@@ -5,95 +5,50 @@
 FROM luthersystems/build-harden:v0.1.45@sha256:ed783a0cd4faf6cd791b844970f00309cec76c4ab90b1e111d641ba44d67ba46 AS harden
 
 #
-# byfn-vars builder
+# Build the builder. It is one static binary: cryptogen, configtxgen, the
+# peer and osnadmin admin calls and Docker Compose all run in process, so
+# the image needs no Fabric, docker or compose binary.
 #
-FROM debian:bookworm AS byfn-vars-builder
+FROM golang:1.27.3-trixie@sha256:af1bfc2614ebb1dbd31af514b78740fd678850e76498762b425ecee4c5c6ea80 AS build
 
-ARG BASEIMAGETAG=0.4.22
+# The default image tags of the generated network (common.config.mk).
 ARG IMAGETAG=2.5.16
 ARG CAIMAGETAG=1.5.21
+ARG BASEIMAGETAG=0.4.22
 ARG IMAGENS=hyperledger
 
-RUN apt-get update && apt-get install -y --no-install-recommends gettext-base && rm -rf /var/lib/apt/lists/*
-
-COPY byfn-vars.sh.template /tmp/
-
-ENV BASEIMAGETAG=${BASEIMAGETAG}
-ENV IMAGETAG=${IMAGETAG}
-ENV CAIMAGETAG=${CAIMAGETAG}
-ENV IMAGENS=${IMAGENS}
-
-RUN envsubst < /tmp/byfn-vars.sh.template > /tmp/byfn-vars.sh
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN pkg=github.com/luthersystems/fabric-network-builder/internal/cli && \
+    CGO_ENABLED=0 go build -trimpath -o /out/fabric-network-builder \
+      -ldflags "-s -w \
+        -X ${pkg}.ImageTag=${IMAGETAG} \
+        -X ${pkg}.CAImageTag=${CAIMAGETAG} \
+        -X ${pkg}.BaseImageTag=${BASEIMAGETAG} \
+        -X ${pkg}.ImageNS=${IMAGENS}" \
+      ./cmd/fabric-network-builder
 
 #
-# fabric artifacts builder
-#
-FROM debian:bookworm AS fabric-artifacts-builder
-
-ARG FABRIC_VERSION=2.5.16
-ARG FABRIC_CRYPTOGEN_VERSION=${FABRIC_VERSION}
-
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-# Function to map uname -m to amd64 or arm64.
-# ca-certificates is named because --no-install-recommends (Trivy DS-0029)
-# drops it, and curl needs it for the https downloads below.
-RUN ARCH=$(uname -m) && \
-    case "$ARCH" in \
-      x86_64) ARCH="amd64" ;; \
-      aarch64) ARCH="arm64" ;; \
-      arm64) ARCH="arm64" ;; \
-      *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
-    esac && \
-    apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/* \
-  && mkdir -p /tmp/hyperledger/fabric \
-  && cd /tmp/hyperledger/fabric \
-  && curl -sSL "https://github.com/hyperledger/fabric/releases/download/v${FABRIC_VERSION}/hyperledger-fabric-linux-${ARCH}-${FABRIC_VERSION}.tar.gz" | tar xz \
-  && if [ "${FABRIC_VERSION}" != "${FABRIC_CRYPTOGEN_VERSION}" ]; then \
-  curl -sSL "https://github.com/hyperledger/fabric/releases/download/v${FABRIC_CRYPTOGEN_VERSION}/hyperledger-fabric-linux-${ARCH}-${FABRIC_CRYPTOGEN_VERSION}.tar.gz" | tar xz cryptogen; \
-  fi
-
 # FNB image
 #
-FROM python:3.12-bookworm
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 
-RUN apt-get update && apt-get install --no-install-recommends -y zip rsync gettext-base curl && rm -rf /var/lib/apt/lists/*
+# Consumers run their own scripts in this image: ui-core runs
+# sandbox-infrastructure-template's fabric/fnb-gen.sh with bash, which uses
+# zip, coreutils (base64, tr), grep, sed and git. Keep them.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends bash ca-certificates coreutils git zip && \
+    rm -rf /var/lib/apt/lists/*
 
-# Install Docker CLI (static binary) - version 27.3.1 supports API 1.44+
-# This replaces the old docker.io package which had version 1.41
-RUN ARCH=$(dpkg --print-architecture | sed 's/arm64/aarch64/; s/amd64/x86_64/') && \
-    curl -fsSL https://download.docker.com/linux/static/stable/${ARCH}/docker-27.3.1.tgz | tar -xz -C /tmp && \
-    mv /tmp/docker/docker /usr/local/bin/docker && \
-    chmod +x /usr/local/bin/docker && \
-    rm -rf /tmp/docker && \
-    docker --version
+COPY --from=build /out/fabric-network-builder /usr/bin/fabric-network-builder
 
-ARG COMPOSE_VER=2.40.3
-RUN curl -sSL "https://github.com/docker/compose/releases/download/v${COMPOSE_VER}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose
-
-RUN mkdir /network
 WORKDIR /network
 ENTRYPOINT ["fabric-network-builder"]
-RUN ln -s /var/lib/fabric-network-builder/network.py /usr/bin/fabric-network-builder
-
-ENV PATH=$PATH:/var/lib/fabric-network-builder/release/linux/bin
-
-COPY requirements.txt /var/lib/fabric-network-builder/
-RUN pip install --no-cache-dir -r /var/lib/fabric-network-builder/requirements.txt
-
-COPY byfn.sh /var/lib/fabric-network-builder/
-COPY template /var/lib/fabric-network-builder/template
-COPY network.py /var/lib/fabric-network-builder/
-
-RUN chmod -R +x \
-  /var/lib/fabric-network-builder/network.py \
-  /var/lib/fabric-network-builder/byfn.sh
-
-COPY --from=fabric-artifacts-builder /tmp/hyperledger/fabric/bin/* /var/lib/fabric-network-builder/release/linux/bin/
-COPY --from=byfn-vars-builder /tmp/byfn-vars.sh /var/lib/fabric-network-builder/
 
 # Harden the image with the build-harden kit: it removes each distrusted CA
 # (such as the eMudhra/emSign roots, CVE-2026-111943) from the system trust
-# store and from every certifi bundle. This must stay the last step that
-# changes files: a later apt, pip or COPY --from step can restore the roots.
+# store. This must stay the last step that changes files: a later apt or COPY
+# step can restore the roots.
 RUN --mount=type=bind,from=harden,source=/harden,target=/harden sh /harden/harden.sh
