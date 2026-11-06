@@ -2,7 +2,9 @@ package cli
 
 import (
 	"fmt"
+	"maps"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -66,12 +68,16 @@ func resolveImageTags(getenv func(string) string) (imageTags, error) {
 }
 
 // composeEnv is the interpolation environment of the compose files.
-func composeEnv(channel, ccVersion string) (map[string]string, error) {
+func composeEnv(dir, channel, ccVersion string) (map[string]string, error) {
 	t, err := resolveImageTags(os.Getenv)
 	if err != nil {
 		return nil, err
 	}
-	env := map[string]string{
+	env, err := chaincodeIDs(dir)
+	if err != nil {
+		return nil, err
+	}
+	maps.Copy(env, map[string]string{
 		"CHANNEL_NAME":    channel,
 		"IMAGE_NS":        ImageNS,
 		"CA_IMAGE_TAG":    CAImageTag,
@@ -79,11 +85,32 @@ func composeEnv(channel, ccVersion string) (map[string]string, error) {
 		"TOOLS_IMAGE_TAG": t.tools,
 		"BASE_IMAGE_TAG":  BaseImageTag,
 		"TIMEOUT":         "10000",
-	}
+	})
 	// byfn.sh always set CHAINCODE_VERSION, empty without -V. Keep a value
 	// from the environment or .env when --cc-version is not given.
 	if ccVersion != "" {
 		env["CHAINCODE_VERSION"] = ccVersion
 	}
 	return env, nil
+}
+
+// chaincodeIDs returns CCID_<NAME> for each chaincodes/*.id file in dir,
+// which generatecc writes: the package ID a CCaaS service needs. NAME is
+// the file name up to its first "-", in upper case, as scripts/env.sh made
+// it for the .env file.
+func chaincodeIDs(dir string) (map[string]string, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "chaincodes", "*.id"))
+	if err != nil {
+		return nil, err
+	}
+	ids := map[string]string{}
+	for _, f := range files {
+		b, rerr := os.ReadFile(f) //nolint:gosec // a file of the network project
+		if rerr != nil {
+			return nil, rerr
+		}
+		name, _, _ := strings.Cut(strings.TrimSuffix(filepath.Base(f), ".id"), "-")
+		ids["CCID_"+strings.ToUpper(name)] = strings.TrimSpace(string(b))
+	}
+	return ids, nil
 }
