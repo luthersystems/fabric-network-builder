@@ -29,6 +29,39 @@ export FABRIC_CFG_PATH=${PWD}
 # Get relevant image tag names
 . /var/lib/fabric-network-builder/byfn-vars.sh
 
+# FNB_IMAGETAG overrides the Fabric peer, orderer and ccenv image tag baked
+# into this image, so one builder image can run a network on another Fabric
+# release (luthersystems/substrate#1034 runs its e2e networks on 2.5 and 3.x).
+# The CLI runs the fabric-tools image, which Fabric 3 no longer publishes, so
+# TOOLSIMAGETAG keeps the override for a 2.x release and otherwise falls back
+# to the baked 2.x tag. FNB_TOOLSIMAGETAG sets it outright.
+function resolveImageTags() {
+  local baked=$IMAGETAG
+  IMAGETAG=${FNB_IMAGETAG:-$IMAGETAG}
+  # The channel flow needs the channel participation API and osnadmin, which
+  # Fabric 2.3 added.
+  case "$IMAGETAG" in
+    1.*|2.[0-2]|2.[0-2].*)
+      echo "Fabric $IMAGETAG is not supported: the network needs Fabric 2.3 or later (channel participation)" >&2
+      return 1 ;;
+  esac
+  if [ -n "${FNB_TOOLSIMAGETAG:-}" ]; then
+    TOOLSIMAGETAG=$FNB_TOOLSIMAGETAG
+    return 0
+  fi
+  case "$IMAGETAG" in
+    2.*) TOOLSIMAGETAG=$IMAGETAG ;;
+    *)
+      case "$baked" in
+        2.*) TOOLSIMAGETAG=$baked ;;
+        *)
+          echo "no fabric-tools image for Fabric $IMAGETAG: set FNB_TOOLSIMAGETAG to a 2.x release" >&2
+          return 1 ;;
+      esac ;;
+  esac
+}
+resolveImageTags || exit 1
+
 # Print the usage message
 function printHelp () {
   echo "Usage: "
@@ -130,7 +163,7 @@ function checkPrereqs() {
   # Note, we check configtxlator externally because it does not require a config file, and peer in the
   # docker image because of FAB-8551 that makes configtxlator return 'development version' in docker
   LOCAL_VERSION=$(configtxlator version | sed -ne 's/ Version: //p')
-  DOCKER_IMAGE_VERSION=$(docker run --rm $IMAGENS/fabric-tools:$IMAGETAG peer version | sed -ne 's/ Version: //p'|head -1)
+  DOCKER_IMAGE_VERSION=$(docker run --rm $IMAGENS/fabric-tools:$TOOLSIMAGETAG peer version | sed -ne 's/ Version: //p'|head -1)
 
   echo "LOCAL_VERSION=$LOCAL_VERSION"
   echo "DOCKER_IMAGE_VERSION=$DOCKER_IMAGE_VERSION"
@@ -169,7 +202,7 @@ function networkUp () {
     echo "ERROR !!!! Missing crypto material"
     exit 1
   fi
-  CHANNEL_NAME=$CHANNEL_NAME DOCKER_PROJECT_DIR=$DOCKER_PROJECT_DIR TIMEOUT=$CLI_TIMEOUT IMAGE_NS=$IMAGENS CA_IMAGE_TAG=$CAIMAGETAG IMAGE_TAG=$IMAGETAG BASE_IMAGE_TAG=$BASEIMAGETAG CHAINCODE_VERSION=$CHAINCODE_VERSION docker-compose $COMPOSE_FILE_ARGS up -d 2>&1
+  CHANNEL_NAME=$CHANNEL_NAME DOCKER_PROJECT_DIR=$DOCKER_PROJECT_DIR TIMEOUT=$CLI_TIMEOUT IMAGE_NS=$IMAGENS CA_IMAGE_TAG=$CAIMAGETAG IMAGE_TAG=$IMAGETAG TOOLS_IMAGE_TAG=$TOOLSIMAGETAG BASE_IMAGE_TAG=$BASEIMAGETAG CHAINCODE_VERSION=$CHAINCODE_VERSION docker-compose $COMPOSE_FILE_ARGS up -d 2>&1
   if [ $? -ne 0 ]; then
     echo "ERROR !!!! Unable to start network"
     docker logs -f cli
@@ -295,11 +328,11 @@ function generateChaincode () {
 
 # Tear down running network
 function networkDown () {
-  IMAGE_NS=$IMAGENS CA_IMAGE_TAG=$CAIMAGETAG IMAGE_TAG=$IMAGETAG BASE_IMAGE_TAG=$BASEIMAGETAG docker-compose $COMPOSE_FILE_ARGS down --volumes
+  IMAGE_NS=$IMAGENS CA_IMAGE_TAG=$CAIMAGETAG IMAGE_TAG=$IMAGETAG TOOLS_IMAGE_TAG=$TOOLSIMAGETAG BASE_IMAGE_TAG=$BASEIMAGETAG docker-compose $COMPOSE_FILE_ARGS down --volumes
   if [ "$MODE" != "restart" ]; then
     # Bring down the network, deleting the volumes
     #Delete any ledger backups
-    docker run -v $PWD:/tmp/first-network --rm $IMAGENS/fabric-tools:$IMAGETAG rm -Rf /tmp/first-network/ledgers-backup
+    docker run -v $PWD:/tmp/first-network --rm $IMAGENS/fabric-tools:$TOOLSIMAGETAG rm -Rf /tmp/first-network/ledgers-backup
     #Cleanup the chaincode containers
     clearContainers
     #Cleanup images

@@ -53,7 +53,11 @@ services:
 
   cli:
     container_name: cli
-    image: $IMAGE_NS/fabric-tools:$IMAGE_TAG
+    # TOOLS_IMAGE_TAG, not IMAGE_TAG: Fabric 3 publishes no fabric-tools
+    # image, so a Fabric 3 network runs a Fabric 2.5 CLI (byfn.sh sets it).
+    # The fallback lets an older builder, which sets only IMAGE_TAG, run
+    # this file too.
+    image: $IMAGE_NS/fabric-tools:${TOOLS_IMAGE_TAG:-$IMAGE_TAG}
     tty: true
     stdin_open: true
     environment:
