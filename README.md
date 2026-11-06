@@ -21,26 +21,31 @@ builder keeps a copy of some Fabric code.
 
 ## Run it
 
-Mount the project directory at the same path in the container, mount the
-Docker socket (for `up`, `install`, `invoke` and `down`), and give `--chown`
-so the files you get belong to you.
+Mount the project directory at the same path in the container, and mount
+the Docker socket (for `up`, `install`, `invoke` and `down`).
 
-The image runs as `nobody` (uid 65534). It has the binary on Alpine, with no bash,
-zip or git. Run it as a user that can write the project directory and use the
-Docker socket: `-u root`, as below, or on Linux your own user with the
-socket's group (`-u "$(id -u):$(id -g)" --group-add "$(stat -c %g
-/var/run/docker.sock)"`).
+The image runs as `nobody`. It has the binary on Alpine, with no bash, zip or
+git. Run it as your own user, so the files it writes belong to you, and add
+the Docker socket's group, so it can use the socket. Ask a container for that
+group: on Docker Desktop it is not the group of the host's socket file.
 
 ```sh
 PROJECT_PATH=$(pwd)
-docker run --rm -it -u root \
-    -v /var/run/docker.sock:/var/run/docker.sock \
+IMAGE=luthersystems/fabric-network-builder
+SOCK=/var/run/docker.sock
+SOCK_GID=$(docker run --rm --entrypoint stat -v "$SOCK:$SOCK" "$IMAGE" -c %g "$SOCK")
+docker run --rm -it \
+    -u "$(id -u):$(id -g)" --group-add "$SOCK_GID" \
+    -v "$SOCK:$SOCK" \
     -v "$PROJECT_PATH:$PROJECT_PATH" \
     -w "$PROJECT_PATH" \
-    luthersystems/fabric-network-builder \
-    --chown "$(id -u):$(id -g)" \
+    "$IMAGE" \
     COMMAND [OPTIONS]
 ```
+
+`--chown USER:GROUP` stays for callers that run the image as root (the
+substrate and ui-core Makefiles use `-u root --chown ...`); it changes the
+owner of the files the builder writes.
 
 `fabric-network-builder.sh` wraps this command. Link it into your PATH:
 

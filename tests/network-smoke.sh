@@ -27,13 +27,17 @@ repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 mkdir -p "${repo}/build"
 work=$(mktemp -d "${repo}/build/smoke.XXXXXX")
 
+# The Docker socket's group as a container sees it, found the way the README
+# says: the image's own stat.
+sock_gid=$(docker run --rm --entrypoint stat -v /var/run/docker.sock:/var/run/docker.sock "${image}" -c %g /var/run/docker.sock)
+
 fnb() {
   # shellcheck disable=SC2086
   docker run --rm \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v "${work}:${work}" -w "${work}" \
     -e FNB_IMAGETAG="${fabric_tag}" \
-    -u "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" \
+    -u "$(id -u):$(id -g)" --group-add "${sock_gid}" \
     ${FNB_SMOKE_DOCKER_OPTS:-} \
     "${image}" --chown "$(id -u):$(id -g)" --channel "${channel}" --force "$@"
 }
