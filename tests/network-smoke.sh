@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # network-smoke.sh generates a two-org network with the builder image, brings
 # it up on one Fabric release, checks that the orderer and every peer joined
-# the channel, and installs a CCaaS chaincode definition on the channel. It runs the builder the way a consumer does (docker run
-# with the Docker socket and the project directory at the same path).
+# the channel, installs a CCaaS chaincode definition on the channel, and
+# renews every leaf cert with reissue and restarts the nodes on them. It runs
+# the builder the way a consumer does (docker run with the Docker socket and
+# the project directory at the same path).
 #
 # Why: the builder talks to the nodes itself (the orderer's channel
 # participation API, the peers' admin and lifecycle gRPC calls). A Fabric
@@ -83,4 +85,42 @@ for org in 1 2; do
   echo "${host}: ${out}"
   grep -q "Version: 1.0, Sequence: 1" <<<"${out}" || { echo "smoke is not committed at sequence 1 on ${host}" >&2; exit 1; }
 done
-echo "network on Fabric ${fabric_tag}: orderer and 4 peers joined ${channel}; smoke 1.0 committed"
+
+# Renew every leaf cert in place, as an operator does before the certs
+# expire, then restart the nodes on the new certs. The nodes must still
+# serve the channel and the committed chaincode: reissue keeps each key and
+# subject, so the MSP identities do not change.
+peer_tls=crypto-config/peerOrganizations/org1.luther.systems/peers/peer0.org1.luther.systems/tls/server.crt
+before=$(openssl x509 -noout -serial -in "${work}/${peer_tls}")
+fnb cert_expiries | grep -q "${peer_tls}" || { echo "cert_expiries does not list ${peer_tls}" >&2; exit 1; }
+fnb reissue --all --days 30
+after=$(openssl x509 -noout -serial -in "${work}/${peer_tls}")
+[[ "${before}" != "${after}" ]] || { echo "reissue did not replace ${peer_tls}" >&2; exit 1; }
+openssl x509 -noout -checkend $((31 * 86400)) -in "${work}/${peer_tls}" >/dev/null \
+  && { echo "${peer_tls} is valid past 31 days after reissue --days 30" >&2; exit 1; }
+docker restart orderer0.luther.systems \
+  peer0.org1.luther.systems peer1.org1.luther.systems \
+  peer0.org2.luther.systems peer1.org2.luther.systems >/dev/null
+for org in 1 2; do
+  for peer in 0 1; do
+    host=peer${peer}.org${org}.luther.systems
+    out=
+    # A restarted peer takes a few seconds to serve again.
+    for _ in $(seq 30); do
+      if out=$(docker exec -e CORE_PEER_ADDRESS="${host}:7051" "${host}" \
+        peer lifecycle chaincode querycommitted -C "${channel}" -n smoke 2>&1) \
+        && grep -q "Version: 1.0, Sequence: 1" <<<"${out}"; then
+        break
+      fi
+      sleep 2
+    done
+    echo "${host} after reissue: ${out}"
+    grep -q "Version: 1.0, Sequence: 1" <<<"${out}" || { echo "${host} does not serve ${channel} after reissue" >&2; exit 1; }
+  done
+done
+ocheck=$(docker exec cli osnadmin channel list --channelID "${channel}" \
+  -o orderer0.luther.systems:7053 \
+  --ca-file /crypto-config/ordererOrganizations/luther.systems/orderers/orderer0.luther.systems/msp/tlscacerts/tlsca.luther.systems-cert.pem \
+  --client-cert "${admin}/client.crt" --client-key "${admin}/client.key" 2>&1)
+grep -q '"status": "active"' <<<"${ocheck}" || { echo "orderer0 is not active in ${channel} after reissue: ${ocheck}" >&2; exit 1; }
+echo "network on Fabric ${fabric_tag}: orderer and 4 peers joined ${channel}; smoke 1.0 committed; nodes serve on reissued certs"
