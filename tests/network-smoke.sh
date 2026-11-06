@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # network-smoke.sh generates a two-org network with the builder image, brings
-# it up on one Fabric release, and checks that the orderer and every peer
-# joined the channel. It runs the builder the way a consumer does (docker run
+# it up on one Fabric release, checks that the orderer and every peer joined
+# the channel, and installs a CCaaS chaincode definition on the channel. It runs the builder the way a consumer does (docker run
 # with the Docker socket and the project directory at the same path).
 #
-# Why: the network has no system channel. The orderer joins the channel with
-# osnadmin and the peers with its genesis block, so a release that changes
-# that flow (Fabric 3 removed the system channel) breaks `up`, not `generate`,
-# and only a real network shows it (luthersystems/substrate#1034).
+# Why: the builder talks to the nodes itself (the orderer's channel
+# participation API, the peers' admin and lifecycle gRPC calls). A Fabric
+# release that changes that flow (Fabric 3 removed the system channel) breaks
+# `up` or `install`, not `generate`, and only a real network shows it
+# (luthersystems/substrate#1034).
 #
 # Usage: tests/network-smoke.sh IMAGE FABRIC_TAG
-#   FNB_SMOKE_DOCKER_OPTS  extra `docker run` options, for example -v mounts
-#                          of a checkout's byfn.sh, template and network.py
+#   FNB_SMOKE_DOCKER_OPTS  extra `docker run` options
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -25,9 +25,8 @@ mkdir -p "${repo}/build"
 work=$(mktemp -d "${repo}/build/smoke.XXXXXX")
 
 fnb() {
-  # -t: byfn.sh runs `docker exec -it cli ...`, which needs a TTY.
   # shellcheck disable=SC2086
-  docker run --rm -t \
+  docker run --rm \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v "${work}:${work}" -w "${work}" \
     -e FNB_IMAGETAG="${fabric_tag}" \
@@ -45,12 +44,7 @@ fnb generate --domain=luther.systems --cc-name=smoke --org-count=2 --peer-count=
 test -f "${work}/channel-artifacts/${channel}.block"
 test ! -e "${work}/channel-artifacts/genesis.block"
 
-# `script` gives `docker run -t` a TTY when stdin is not one (CI).
-if [ -t 0 ]; then
-  fnb -s goleveldb up --cc-version smoke
-else
-  script -q -e -c "$(declare -f fnb); work='${work}' image='${image}' fabric_tag='${fabric_tag}' channel='${channel}' FNB_SMOKE_DOCKER_OPTS='${FNB_SMOKE_DOCKER_OPTS:-}' fnb -s goleveldb up --cc-version smoke" /dev/null
-fi
+fnb -s goleveldb up --cc-version smoke
 
 running=$(docker inspect -f '{{.Config.Image}}' orderer0.luther.systems)
 echo "orderer image: ${running}"
@@ -78,4 +72,15 @@ for org in 1 2; do
     grep -qx "${channel}" <<<"${out}" || { echo "${host} did not join ${channel}" >&2; exit 1; }
   done
 done
-echo "network on Fabric ${fabric_tag}: orderer and 4 peers joined ${channel}"
+# A CCaaS package needs no chaincode server to install, approve and commit:
+# the lifecycle runs on the peers alone.
+fnb generatecc --ccaas smoke 1.0 smoke /chaincodes/smoke-1.0.tar.gz
+fnb install smoke 1.0 smoke /chaincodes/smoke-1.0.tar.gz
+for org in 1 2; do
+  host=peer0.org${org}.luther.systems
+  out=$(docker exec -e CORE_PEER_ADDRESS="${host}:7051" "${host}" \
+    peer lifecycle chaincode querycommitted -C "${channel}" -n smoke 2>&1)
+  echo "${host}: ${out}"
+  grep -q "Version: 1.0, Sequence: 1" <<<"${out}" || { echo "smoke is not committed at sequence 1 on ${host}" >&2; exit 1; }
+done
+echo "network on Fabric ${fabric_tag}: orderer and 4 peers joined ${channel}; smoke 1.0 committed"

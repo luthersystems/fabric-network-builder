@@ -1,22 +1,29 @@
 # Fabric network builder
 
-## Setup
+fabric-network-builder generates a local Hyperledger Fabric network, brings
+it up, and installs chaincode on it. It is one Go binary in the
+`luthersystems/fabric-network-builder` image. It supports Fabric 2.5 and
+later.
 
-You must have fabric checked out at `$GOPATH/src/github.com/hyperledger/fabric`
-and the branch `luthersystems/master` must be present (typically fetched from
-the remote `git@github.com:luthersystems/fabric.git`).
+The binary does all the Fabric work itself:
 
-Build the luthersystems/fabric-network-builder container.
+| Step | How |
+|---|---|
+| Crypto material | Fabric's cryptogen code, in process |
+| Channel genesis block | Fabric's configtxgen code, in process |
+| Start and stop the network | The Docker Compose library, through the Docker API |
+| Orderer joins the channel | The orderer's channel participation API (port 7053) |
+| Peers join, chaincode install, approve and commit | The peers' gRPC admin and gateway APIs ([fabric-admin-sdk](https://github.com/hyperledger/fabric-admin-sdk)) |
 
-```bash
-make
-```
+So the image has no Fabric, docker or compose binary, and a project needs no
+copy of the peer scripts. `third_party/fabric/README.md` tells why the
+builder keeps a copy of some Fabric code.
 
-Mount your project directory under an identical path in the
-fabric-network-builder container and invoke the container with option --chown
-in order to have fabric-network-builder set the file owner/group correctly. In
-order for the container to run docker (compose) commands /var/run/docker.sock
-also needs to be mounted (for `up`, `down`, and `install`).
+## Run it
+
+Mount the project directory at the same path in the container, mount the
+Docker socket (for `up`, `install` and `down`), and give `--chown` so the
+files you get belong to you:
 
 ```sh
 PROJECT_PATH=$(pwd)
@@ -25,145 +32,68 @@ docker run --rm -it \
     -v "$PROJECT_PATH:$PROJECT_PATH" \
     -w "$PROJECT_PATH" \
     luthersystems/fabric-network-builder \
-    --chown $(id -u $USER):$(id -g $USER) \
+    --chown "$(id -u):$(id -g)" \
     COMMAND [OPTIONS]
 ```
 
-This pattern is best wrapped in a custom script. This project provides such a
-script as `fabric-network-builder.sh`. The wrapper script may be installed by
-refrencing it with a symlink inside the machine's PATH.
+`fabric-network-builder.sh` wraps this command. Link it into your PATH:
 
 ```bash
-ln -s $(pwd)/fabric-network-builder.sh /usr/local/bin/fabric-network-builder
+ln -s "$(pwd)/fabric-network-builder.sh" /usr/local/bin/fabric-network-builder
 ```
 
-Usage examples here assume this setup and will invoke the docker container
-using the command `fabric-network-builder`.
+The builder reaches the nodes at their container addresses on the network.
+When it runs in a container, it connects that container to the network for
+the command and disconnects it after. Run it from the image. A binary on a
+macOS host cannot reach the container addresses.
 
-## Example
+`fabric-network-builder --help` and `fabric-network-builder COMMAND --help`
+list every option.
 
-Generate artifacts network artifacts (mainly crypto-config)
+## Commands
+
+| Command | What it does |
+|---|---|
+| `generate` | Writes the compose files, `configtx.yaml` and `crypto-config.yaml`, then the crypto material and the channel genesis block. `--template` writes only the files; `--no-template` makes only the material from the files you have. `--archive FILE` writes a `.tar.xz` and leaves the directory alone. |
+| `extend` | Adds the crypto material for new orgs or peers in `crypto-config.yaml` and keeps the rest. |
+| `up` | Starts the network, joins each orderer and each peer to the channel. |
+| `install NAME VERSION "VARIANTS" /chaincodes/PKG.tar.gz` | Installs each variant's package on every peer, approves it for every org and commits it on the channel, at the next sequence. |
+| `generatecc NAME VERSION "VARIANTS" /chaincodes/PKG.tar.gz` | Builds the chaincode packages and their package IDs (`chaincodes/<variant>-<version>.id`). |
+| `down` | Stops the network, removes its volumes and the chaincode containers and images. |
+| `cert_expiries` | Prints the expiry of each certificate. |
+| `reissue` | Renews leaf certificates in place (see below). |
+
+### Example
 
 ```sh
-fabric-network-builder generate
-```
-
-Launch the docker(-compose) network and join the default channel "luther" with
-all peers.
-
-```sh
+fabric-network-builder generate --domain-name luther.systems
 fabric-network-builder up
+fabric-network-builder install mycc v1.0 mycc /chaincodes/mycc-v1.0.tar.gz
+fabric-network-builder down
 ```
 
 The network has no orderer system channel. `generate` writes the channel's
 genesis block, `channel-artifacts/<channel>.block`, with the anchor peers in
-it. `up` joins each orderer to the channel with `osnadmin` (the orderer's
-channel participation API on port 7053) and each peer with the same block.
-Fabric 3 removed the system channel, and Fabric 2.3 and later support this
-flow, so one generated network runs on both. Only the `etcdraft` orderer type
-is generated. A network generated by an older release keeps its own scripts
-and still uses the system channel.
+it. Only the `etcdraft` orderer type is generated.
 
-To run the network on another Fabric release than the one baked into the
-image, set `FNB_IMAGETAG` in the container's environment:
+### Fabric release
+
+To run the network on another Fabric release than the default of the image,
+set `FNB_IMAGETAG` in the container's environment:
 
 ```sh
 docker run -e FNB_IMAGETAG=3.1.4 ... luthersystems/fabric-network-builder up
 ```
 
-It sets the peer, orderer and ccenv image tag. The CLI container runs
-`fabric-tools`, which Fabric 3 does not publish, so for a 3.x tag the CLI
-stays on the image's own 2.5 tag. `FNB_TOOLSIMAGETAG` sets the CLI tag
-outright. `tests/network-smoke.sh IMAGE TAG` generates a network, brings it up
-on that tag and checks that every node joined the channel.
+It sets the peer, orderer and ccenv image tag. A tag before 2.5 is refused.
+The `cli` service runs `fabric-tools`, which Fabric 3 does not publish, so
+for a 3.x tag it stays on the image's own 2.5 tag. `FNB_TOOLSIMAGETAG` sets
+its tag. The builder does not use the `cli` service; it stays for your own
+`docker exec` commands.
 
-fabric-network-builder expects chaincode source to be placed in the
-`chaincodes/` directory as a CAR file when installing. Copy CAR files from
-the chaintools `build/` directory
-
-```sh
-CHAINCODE_PATH=/path/to/cc/app
-CAR=com.luthersystems.chaincode.substrate01-0.0.1-SNAPSHOT.car
-cp $CHAINCODE_PATH/build/$CAR ./chaincodes/
-fabric-network-builder install substrate01 v0.0.1-SNAPSHOT $CAR
-```
-
-Initialize the chaincode using the fabric-client.yaml configuration file
-produced by fabric-network-builder to configure fabric-sdk-go.
-
-```sh
-shiroclient --config=/path/to/shiroclient.yaml \
-    --fabric.client-config=fabric-client.yaml \
-    init /path/to/substrate/phylum.zy
-```
-
-**NOTE:
-See shiroclient for information about proper the contents of shiroclient.yaml**
-
-Terminate the docker network and destroy all containers when running the
-containers is no longer necessary.
-
-```sh
-fabric-network-builder down
-```
-
-Get fabric repos and checkout the v1.0.0 release.
-Note that the Github URLs provided are using SSH. Replace git@ with https:// if using https.
-
-```bash
-git clone git@github.com:hyperledger/fabric.git $GOPATH/src/github.com/hyperledger/fabric
-git clone git@github.com:hyperledger/fabric-ca.git $GOPATH/src/github.com/hyperledger/fabric-ca
-cd $GOPATH/src/github.com/hyperledger/fabric
-git checkout v1.0.0
-cd $GOPATH/src/github.com/hyperledger/fabric-ca
-git checkout v1.0.0
-```
-
-Build fabric images and utilities.
-
-```bash
-cd $GOPATH/src/github.com/hyperledger/fabric
-make docker
-make release-all
-export PATH="$PATH:$GOPATH/src/github.com/hyperledger/fabric/release/$(go env GOOS)-$(go env GOARCH)/bin"
-```
-
-Build the fabric-ca image.
-
-```bash
-cd $GOPATH/src/github.com/hyperledger/fabric-ca
-make docker
-```
-
-## Running chaincode
-
-**NOTE**: These instructions are deprecated and no longer directly apply
-
-## Network setup
-
-Run byfn.sh to generate network artifacts and bring the network up.
-
-```bash
-./byfn.sh -m generate
-./byfn.sh -m up
-```
-
-## Chaincode installation
-
-To install chaincode CAR packages copy the files to the chaincode directory and
-run byfn.sh to install the chaincode.
-
-```bash
-cp /path/to/chaincode.car ./chaincode/chaincode.car
-./byfn.sh -m install -C mycc -V v1.0 -P chaincode.car
-```
-
-Instead of running byfn.sh the script can be installed by entering the "cli"
-container.
-
-```bash
-docker exec -it cli bash ./scripts/install.sh mychannel mycc v1.0 chaincode.car
-```
+`tests/network-smoke.sh IMAGE TAG` generates a network, brings it up on that
+tag, checks that every node joined the channel and commits a chaincode
+definition. CI runs it on 2.5 and 3.1.
 
 ## Chaincode as a Service (CCaaS)
 
@@ -179,7 +109,7 @@ in `cc_variants`; an unknown name exits with a non-zero status.
 ```bash
 fabric-network-builder generatecc --ccaas \
     --image-override external=luthersystems/externalcc:$CHAINCODE_VERSION \
-    mycc v1.0 "a b external" /path/to/chaincode.car
+    mycc v1.0 "a b external" /chaincodes/mycc-v1.0.tar.gz
 ```
 
 With that invocation the generated compose file assigns
@@ -218,62 +148,44 @@ or if the CA private key is not on the filesystem - fabric-ca issued material
 must be renewed with `fabric-ca-client reenroll`. Replaced certs are backed up
 alongside the original as `*.bak` unless `--no-backup` is given.
 
-## Network teardown
+## Renewing certificates
 
-When finished using the network use byfn.sh to stop/remove containers and
-delete channel artifacts.
+`cert_expiries` prints the expiry of every certificate in a crypto-config tree.
+`reissue` renews expiring **leaf** certificates (peer, orderer and user MSP
+signcerts and TLS certs) in place, for cryptogen trees where the issuing CA
+key is on the filesystem.
 
-```bash
-byfn.sh -m down
+It re-signs each cert with the CA on disk. It keeps the node's key, the
+subject and the extensions. Only the validity and the serial number change.
+The MSP identity stays the same, so the ledger and the channel config need no
+change: replace the files and restart the node.
+
+```sh
+# list each leaf cert's expiry and mark the expired ones (no changes)
+fabric-network-builder reissue
+
+# renew each expired cert, up to the CA's expiry
+fabric-network-builder reissue --all-expired
+
+# renew some nodes (short names match), TLS only, 2 years
+fabric-network-builder reissue --node peer0 --node peer1 --type tls --days 730
+
+# show what would change
+fabric-network-builder reissue --all --dry-run
 ```
 
-## Full example
+The new validity is never past the CA's expiry. `reissue` refuses when the CA
+has expired (that needs a CA rotation and a channel config update) or when
+the CA key is not on the filesystem (renew fabric-ca material with
+`fabric-ca-client reenroll`). It keeps each replaced cert as `*.bak`, unless
+you give `--no-backup`.
 
-Destroy any existing network and generate a new one
+## Develop
 
-```bash
-./byfn.sh -m down -f
-./byfn.sh -m generate -f
-./byfn.sh -m up -f
-```
-
-Install the prop chaincode.
-
-```bash
-# optional step if the chaincode has been altered and rebuilt
-cp $GOPATH/src/github.com/luthersystems/ProjectProp/Blockchain/prop-chaincodes/prop01/app/build/com.luthersystems.chaincode.prop01-0.0.18-SNAPSHOT.car chaincode/
-
-./byfn.sh -m install -f -C prop01 -V v0.0.18-SNAPSHOT -P com.luthersystems.chaincode.prop01-0.0.18-SNAPSHOT.car
-```
-
-Instantiate the chaincode.
-
-**NOTE:** This requires `prop01` cli to be installed which reads `prop01.yml` for configuration.
-
-```bash
-prop01 Instantiate '{"metadata":{"timestamp":"2017-08-17T01:05:22Z"}}'
-```
-
-Create a location for volume mounts
-
-```bash
-mkdir -p dockertmp/msp
-mkdir -p dockertmp/enroll_user
-chmod -R 777 dockertmp
-```
-
-Bring up the application network
-
-```bash
-chmod -R a+r crypto-config
-docker-compose -f docker-compose-prop.yaml up
-```
-
-Tear down the application network
-
-```bash
-docker-compose -f docker-compose-prop.yaml down
-sudo rm -r dockertmp/*/*
+```sh
+make test            # go test ./...
+make static-checks   # golangci-lint
+make                 # build the image
 ```
 
 ## Releasing
