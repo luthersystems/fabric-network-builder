@@ -36,7 +36,20 @@ fnb() {
     "${image}" --chown "$(id -u):$(id -g)" --channel "${channel}" --force "$@"
 }
 
+# On a failure, print each node's state and last log lines, so a node that
+# stopped can be read from the CI log.
+dump_nodes() {
+  local c
+  for c in orderer0.luther.systems peer0.org1.luther.systems peer1.org1.luther.systems \
+    peer0.org2.luther.systems peer1.org2.luther.systems; do
+    echo "----- ${c}: $(docker inspect -f '{{.State.Status}} exit={{.State.ExitCode}} restarts={{.RestartCount}}' "${c}" 2>&1)" >&2
+    docker logs --tail 40 "${c}" 2>&1 | sed "s/^/${c}: /" >&2 || true
+  done
+}
+
 cleanup() {
+  status=$?
+  [ "${status}" -eq 0 ] || dump_nodes
   fnb down >/dev/null 2>&1 || true
   rm -rf "${work}"
 }
