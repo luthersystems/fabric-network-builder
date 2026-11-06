@@ -28,7 +28,10 @@ hyperledger/fabric v3.1.4, under the Apache License 2.0 (`LICENSE`).
   the same paths. The `github.com/hyperledger/fabric` module has no release
   with a Go semver tag, so govulncheck reports GO-2024-3099 for any build
   that imports it (#34). A channel genesis block made this way decodes to
-  the same config as one made with the Fabric packages.
+  the same config as one made with the Fabric packages. One difference:
+  the fabric-x-common genesis factory sets the Fabric-X block data hash
+  (a length before each item). `internal/fabtools` sets the Fabric hash
+  again, because a Fabric 3 orderer refuses the block otherwise.
 - `cryptogen.go` is package `cryptogen`, not `main`. The kingpin flags are
   package variables, and each `os.Exit` is a `panic` with the same message,
   so the builder can report the error and continue.

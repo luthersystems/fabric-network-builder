@@ -8,6 +8,7 @@
 package fabtools
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -92,5 +93,20 @@ func genesisBlock(configDir, channelID string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("configtxgen: %w", err)
 	}
-	return protoutil.Marshal(bs.GenesisBlockForChannel(channelID))
+	block := bs.GenesisBlockForChannel(channelID)
+	block.Header.DataHash = fabricDataHash(block.Data.Data)
+	return protoutil.Marshal(block)
+}
+
+// fabricDataHash is the block data hash of Fabric 2.5 and 3.x: the SHA-256
+// of the joined data. The genesis factory in fabric-x-common uses the
+// Fabric-X hash, which puts a length before each item. A Fabric orderer
+// refuses a block with that hash ("Header.DataHash is different from
+// Hash(block.Data)").
+func fabricDataHash(data [][]byte) []byte {
+	h := sha256.New()
+	for _, d := range data {
+		h.Write(d)
+	}
+	return h.Sum(nil)
 }
