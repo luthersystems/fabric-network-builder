@@ -242,26 +242,30 @@ func (n *Network) readiness(ctx context.Context, p *peerConn, def *chaincode.Def
 }
 
 // approve approves def, which names the installed package, for the org of
-// peer.
+// peer. It retries: the gateway answers Unavailable while the orderer has no
+// Raft leader yet, just after up. Each attempt first asks whether the org
+// has approved, so an attempt whose transaction committed although the
+// call failed is not approved twice.
 func (n *Network) approve(ctx context.Context, org, peer int, def *chaincode.Definition) error {
 	p, err := n.dialPeer(org, peer)
 	if err != nil {
 		return err
 	}
-	d := *def
-	id := d.PackageID
-	if approvals, rerr := n.readiness(ctx, p, &d); rerr == nil && approvals[p.id.MspID()] {
-		n.printf("Chaincode already approved for %s\n", p.id.MspID())
+	msp := p.id.MspID()
+	return n.retry(ctx, "approve for "+msp+" on "+p.host, func() error {
+		if approvals, rerr := n.readiness(ctx, p, def); rerr == nil && approvals[msp] {
+			n.printf("Chaincode already approved for %s\n", msp)
+			return nil
+		}
+		n.printf("Approving chaincode for %s on %s (package %s)...\n", msp, p.host, def.PackageID)
+		actx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		if aerr := chaincode.NewGateway(p.conn, p.id).Approve(actx, def); aerr != nil {
+			return aerr
+		}
+		n.printf("Chaincode is approved for %s\n", msp)
 		return nil
-	}
-	n.printf("Approving chaincode for %s on %s (package %s)...\n", p.id.MspID(), p.host, id)
-	actx, cancel2 := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel2()
-	if err := chaincode.NewGateway(p.conn, p.id).Approve(actx, &d); err != nil {
-		return fmt.Errorf("%s: %w", p.host, err)
-	}
-	n.printf("Chaincode is approved for %s\n", p.id.MspID())
-	return nil
+	})
 }
 
 func (n *Network) waitReady(ctx context.Context, org, peer int, def *chaincode.Definition) error {
@@ -284,19 +288,31 @@ func (n *Network) waitReady(ctx context.Context, org, peer int, def *chaincode.D
 	})
 }
 
+// commit commits def. It retries for the same reason as approve. Each
+// attempt first asks whether def is committed, so an attempt whose
+// transaction committed although the call failed is not committed twice.
 func (n *Network) commit(ctx context.Context, def *chaincode.Definition) error {
 	p, err := n.dialPeer(n.Vars.OrgIndices[0], n.Vars.PeerIndices[0])
 	if err != nil {
 		return err
 	}
-	n.printf("Committing chaincode definition %s %s sequence %d...\n", def.Name, def.Version, def.Sequence)
-	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	if err := chaincode.NewGateway(p.conn, p.id).Commit(cctx, def); err != nil {
-		return fmt.Errorf("commit %s: %w", def.Name, err)
-	}
-	n.printf("Chaincode definition committed\n")
-	return nil
+	return n.retry(ctx, "commit "+def.Name+" on "+p.host, func() error {
+		qctx, qcancel := context.WithTimeout(ctx, 30*time.Second)
+		res, qerr := chaincode.NewGateway(p.conn, p.id).QueryCommittedWithName(qctx, def.ChannelName, def.Name)
+		qcancel()
+		if qerr == nil && res.GetSequence() == def.Sequence {
+			n.printf("Chaincode definition already committed\n")
+			return nil
+		}
+		n.printf("Committing chaincode definition %s %s sequence %d...\n", def.Name, def.Version, def.Sequence)
+		cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		if cerr := chaincode.NewGateway(p.conn, p.id).Commit(cctx, def); cerr != nil {
+			return cerr
+		}
+		n.printf("Chaincode definition committed\n")
+		return nil
+	})
 }
 
 func (n *Network) waitCommitted(ctx context.Context, org, peer int, def *chaincode.Definition) error {
