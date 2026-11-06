@@ -505,3 +505,41 @@ func TestUniqueNonClobberingBackups(t *testing.T) {
 	assert.Equal(t, p+".bak", first)
 	assert.Len(t, seen, 3)
 }
+
+// The Fabric MSP checks a cert's chain at the cert's NotBefore plus one
+// second, not at the current time. cryptogen dates a CA from the current
+// minute minus 5 minutes, so a leaf reissued soon after generate, dated now
+// minus 5 minutes, started before its CA, and the peer refused its own
+// identity at start ("certificate has expired or is not yet valid").
+func TestRebuildStartsNoEarlierThanItsCA(t *testing.T) {
+	key := newKey(t)
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial(t),
+		Subject:               pkix.Name{CommonName: "ca.org1.example.com"},
+		NotBefore:             time.Now().UTC().Add(-time.Minute).Truncate(time.Second),
+		NotAfter:              time.Now().Add(3650 * 24 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.Public(), key)
+	require.NoError(t, err)
+	caCert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	ca := keyCert{key, caCert}
+	leaf := mkLeaf(t, "peer0.org1.example.com", "peer", ca, time.Now().Add(24*time.Hour), nil, nil)
+
+	b, err := Rebuild(leaf.cert, ca.cert, ca.key, time.Now().Add(30*24*time.Hour))
+	require.NoError(t, err)
+	c, err := parseCert(b)
+	require.NoError(t, err)
+	assert.False(t, c.NotBefore.Before(ca.cert.NotBefore), "leaf NotBefore %s is before CA NotBefore %s", c.NotBefore, ca.cert.NotBefore)
+	roots := x509.NewCertPool()
+	roots.AddCert(ca.cert)
+	_, err = c.Verify(x509.VerifyOptions{
+		Roots:       roots,
+		CurrentTime: c.NotBefore.Add(time.Second),
+		KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	})
+	require.NoError(t, err)
+}
