@@ -2,7 +2,7 @@
 # build-harden kit (luthersystems/buildenv images/harden), run last in the
 # final stage
 #
-FROM luthersystems/build-harden:v0.1.45@sha256:ed783a0cd4faf6cd791b844970f00309cec76c4ab90b1e111d641ba44d67ba46 AS harden
+FROM luthersystems/build-harden:v0.1.53@sha256:f0830ffa253727ce69abe815e65434a5fc16973594b37c938774bd6e1ff4e4e6 AS harden
 
 #
 # Build the builder. It is one static binary: cryptogen, configtxgen, the
