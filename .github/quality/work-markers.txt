@@ -1,0 +1,9 @@
+# Allowlist for the shared work marker gate (luthersystems/.github,
+# actions/work-markers), which the Quality workflow runs. Entries are only
+# for words that are not our work. Format: docs/quality-workflow.md there.
+#
+#   path | text | expires | issue | reason
+
+# Fabric source copied verbatim by third_party/fabric/vendor.py.
+third_party/fabric/configtxgen/encoder/encoder.go | * | never | - | Upstream Fabric source, copied verbatim.
+third_party/fabric/cryptogen/cryptogen.go | * | never | - | Upstream Fabric source, copied by vendor.py.
