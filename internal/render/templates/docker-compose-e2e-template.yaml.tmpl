@@ -1,0 +1,66 @@
+# Copyright IBM Corp. All Rights Reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+version: '2'
+
+volumes:
+  {{- range $i := $.ORDERER_INDICES }}
+  orderer{{$i}}.{{$.DOMAIN_NAME}}:
+  {{- end }}
+  {{- range $i := $.ORG_INDICES }}
+  {{- range $j := $.PEER_INDICES }}
+  peer{{$j}}.org{{$i}}.{{$.DOMAIN_NAME}}:
+  {{- end }}
+  ca.org{{$i}}.{{$.DOMAIN_NAME}}:
+  {{- end }}
+
+networks:
+  byfn:
+
+services:
+  {{- range $z := $.ZIP_ORG_INDICES_CA_PORTS }}
+  ca.org{{$z.Index}}.{{$.DOMAIN_NAME}}:
+    image: $IMAGE_NS/fabric-ca:$CA_IMAGE_TAG
+    environment:
+      - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
+      - FABRIC_CA_SERVER_CA_NAME=ca-org{{$z.Index}}
+      - FABRIC_CA_SERVER_TLS_ENABLED=true
+      - FABRIC_CA_SERVER_TLS_CERTFILE=/etc/hyperledger/fabric-ca-server-config/ca.org{{$z.Index}}.{{$.DOMAIN_NAME}}-cert.pem
+      - FABRIC_CA_SERVER_TLS_KEYFILE=/etc/hyperledger/fabric-ca-server-config/CA{{$z.Index}}_PRIVATE_KEY
+    ports:
+      - {{$z.CAPort}}:7054
+    command: sh -c 'fabric-ca-server start --ca.certfile /etc/hyperledger/fabric-ca-server-config/ca.org{{$z.Index}}.{{$.DOMAIN_NAME}}-cert.pem --ca.keyfile /etc/hyperledger/fabric-ca-server-config/CA{{$z.Index}}_PRIVATE_KEY -b admin:adminpw -d'
+    volumes:
+      - ./crypto-config/peerOrganizations/org{{$z.Index}}.{{$.DOMAIN_NAME}}/ca/:/etc/hyperledger/fabric-ca-server-config
+    container_name: ca_peerOrg{{$z.Index}}
+    networks:
+      - byfn
+  {{- end }}
+  {{- range $i := $.ORDERER_INDICES }}
+
+  orderer{{$i}}.{{$.DOMAIN_NAME}}:
+    extends:
+      file:   base/docker-compose-base.yaml
+      service: orderer{{$i}}.{{$.DOMAIN_NAME}}
+    container_name: orderer{{$i}}.{{$.DOMAIN_NAME}}
+    environment:
+      - FABRIC_LOGGING_SPEC
+    networks:
+      - byfn
+  {{- end }}
+  {{- range $i := $.ORG_INDICES }}
+  {{- range $j := $.PEER_INDICES }}
+
+  peer{{$j}}.org{{$i}}.{{$.DOMAIN_NAME}}:
+    container_name: peer{{$j}}.org{{$i}}.{{$.DOMAIN_NAME}}
+    extends:
+      file:  base/docker-compose-base.yaml
+      service: peer{{$j}}.org{{$i}}.{{$.DOMAIN_NAME}}
+    environment:
+      - FABRIC_LOGGING_SPEC
+    networks:
+      - byfn
+  {{- end }}
+  {{- end }}

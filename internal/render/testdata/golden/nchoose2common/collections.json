@@ -1,0 +1,29 @@
+[
+    {
+        "name": "beta_gamma",
+        "policy": "OR('Org1MSP.member','Org2MSP.member','Org3MSP.member')",
+        "requiredPeerCount": 2,
+        "maxPeerCount": 3,
+        "blockToLive": 0,
+        "memberOnlyRead": false,
+        "memberOnlyWrite": false
+    },
+    {
+        "name": "beta_delta",
+        "policy": "OR('Org1MSP.member','Org2MSP.member','Org4MSP.member')",
+        "requiredPeerCount": 2,
+        "maxPeerCount": 3,
+        "blockToLive": 0,
+        "memberOnlyRead": false,
+        "memberOnlyWrite": false
+    },
+    {
+        "name": "gamma_delta",
+        "policy": "OR('Org1MSP.member','Org3MSP.member','Org4MSP.member')",
+        "requiredPeerCount": 2,
+        "maxPeerCount": 3,
+        "blockToLive": 0,
+        "memberOnlyRead": false,
+        "memberOnlyWrite": false
+    }
+]

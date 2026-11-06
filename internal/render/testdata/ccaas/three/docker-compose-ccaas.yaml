@@ -1,0 +1,37 @@
+version: '3.7'
+services:
+  a-b-peer0:
+    image: luthersystems/substrate:$CHAINCODE_VERSION
+    command: ["$CCID_A-B"]
+    ports:
+      - "9080:8080"
+    networks:
+      - byfn
+    environment:
+      CHAINCODE_OTLP_TRACER_ENDPOINT:
+      CHAINCODE_LOG_LEVEL:
+
+  external-peer0:
+    image: foo/bar:1.2
+    command: ["$CCID_EXTERNAL"]
+    ports:
+      - "9081:8080"
+    networks:
+      - byfn
+    environment:
+      CHAINCODE_OTLP_TRACER_ENDPOINT:
+      CHAINCODE_LOG_LEVEL:
+
+  c-peer0:
+    image: luthersystems/substrate:$CHAINCODE_VERSION
+    command: ["$CCID_C"]
+    ports:
+      - "9082:8080"
+    networks:
+      - byfn
+    environment:
+      CHAINCODE_OTLP_TRACER_ENDPOINT:
+      CHAINCODE_LOG_LEVEL:
+networks:
+  byfn:
+    name: byfn

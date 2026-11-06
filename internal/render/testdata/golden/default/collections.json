@@ -1,0 +1,11 @@
+[
+    {
+        "name": "private",
+        "policy": "OR('Org1MSP.member', 'Org2MSP.member')",
+        "requiredPeerCount": 2,
+        "maxPeerCount": 3,
+        "blockToLive": 0,
+        "memberOnlyRead": false,
+        "memberOnlyWrite": false
+    }
+]
