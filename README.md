@@ -58,6 +58,7 @@ list every option.
 | `extend` | Adds the crypto material for new orgs or peers in `crypto-config.yaml` and keeps the rest. |
 | `up` | Starts the network, joins each orderer and each peer to the channel. |
 | `install NAME VERSION "VARIANTS" /chaincodes/PKG.tar.gz` | Installs each variant's package on every peer, approves it for every org and commits it on the channel, at the next sequence. |
+| `invoke [--init] [--peer peerJ.orgI]... NAME '{"Args":[...]}'` | Submits a chaincode transaction, endorsed by the first peer of each org (or the `--peer` list), and waits until it is committed. `--init` calls the chaincode's Init, for `install --init-required`. Prints the response. |
 | `generatecc NAME VERSION "VARIANTS" /chaincodes/PKG.tar.gz` | Builds the chaincode packages and their package IDs (`chaincodes/<variant>-<version>.id`). |
 | `down` | Stops the network, removes its volumes and the chaincode containers and images. |
 | `cert_expiries` | Prints the expiry of each certificate. |
@@ -115,6 +116,10 @@ fabric-network-builder generatecc --ccaas \
 With that invocation the generated compose file assigns
 `luthersystems/externalcc:$CHAINCODE_VERSION` to `external-peer0` and leaves
 `a-peer0`/`b-peer0` on the substrate default.
+
+Each service reads its package ID from `CCID_<NAME>`. The builder sets it
+from `chaincodes/<name>-<version>.id`, so you do not need a `.env` file. A
+value in `.env` or the environment is replaced by the one from the `.id` file.
 
 ## Renewing certificates
 
