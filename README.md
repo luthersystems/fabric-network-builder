@@ -22,12 +22,18 @@ builder keeps a copy of some Fabric code.
 ## Run it
 
 Mount the project directory at the same path in the container, mount the
-Docker socket (for `up`, `install` and `down`), and give `--chown` so the
-files you get belong to you:
+Docker socket (for `up`, `install`, `invoke` and `down`), and give `--chown`
+so the files you get belong to you.
+
+The image runs as `nobody` (uid 65534). It has the binary on Alpine, with no bash,
+zip or git. Run it as a user that can write the project directory and use the
+Docker socket: `-u root`, as below, or on Linux your own user with the
+socket's group (`-u "$(id -u):$(id -g)" --group-add "$(stat -c %g
+/var/run/docker.sock)"`).
 
 ```sh
 PROJECT_PATH=$(pwd)
-docker run --rm -it \
+docker run --rm -it -u root \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v "$PROJECT_PATH:$PROJECT_PATH" \
     -w "$PROJECT_PATH" \
@@ -171,15 +177,15 @@ you give `--no-backup`.
 ```sh
 make test            # go test ./...
 make static-checks   # golangci-lint
-make                 # build the image
+make                 # build the image with ko (https://ko.build), as luthersystems/fabric-network-builder:latest
 ```
 
 ## Releasing
 
 Releases are tags `vMAJOR.MINOR.PATCH` cut from `main`. Pushing a tag runs
 `.github/workflows/release.yml`, which builds the amd64 and arm64
-`luthersystems/fabric-network-builder` images and pushes them and the
-multiarch manifests to Docker Hub.
+`luthersystems/fabric-network-builder` images with ko and pushes them and the
+multiarch manifest to Docker Hub.
 
 Cut a release with the `Release (tag)` workflow
 (`.github/workflows/release-tag.yml`). It checks that the version is strictly

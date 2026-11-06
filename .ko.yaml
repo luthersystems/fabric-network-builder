@@ -1,0 +1,25 @@
+# ko builds the image: the one static binary on luthersystems/buildenv's
+# runtime base, Alpine that runs the build-harden kit last and runs as
+# nobody (#28). The image has no bash, zip or git: callers run the builder's
+# own commands (ansible-vars --generate-from replaces fabric/fnb-gen.sh).
+#
+# Bump the tag and digest to take a new buildenv release, and bump the
+# harden-check kit in .github/workflows/ci.yml to the same release.
+# Dependabot cannot read this file.
+defaultBaseImage: luthersystems/service-base-alpine:v0.1.53@sha256:ddfe3ce168e61dbde11790dee80844e84623fe200bcee63fb4591983aa991fd2
+
+builds:
+  - id: fabric-network-builder
+    main: ./cmd/fabric-network-builder
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    # The default image tags of the generated network come from
+    # common.config.mk, which the Makefile exports. Build with make.
+    ldflags:
+      - -s -w
+      - -X github.com/luthersystems/fabric-network-builder/internal/cli.ImageTag={{.Env.FABRIC_VERSION}}
+      - -X github.com/luthersystems/fabric-network-builder/internal/cli.CAImageTag={{.Env.FABRIC_CA_VERSION}}
+      - -X github.com/luthersystems/fabric-network-builder/internal/cli.BaseImageTag={{.Env.FABRIC_BASE_VERSION}}
+      - -X github.com/luthersystems/fabric-network-builder/internal/cli.ImageNS=hyperledger

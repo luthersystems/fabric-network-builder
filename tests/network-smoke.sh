@@ -4,7 +4,8 @@
 # the channel, installs a CCaaS chaincode definition on the channel, and
 # renews every leaf cert with reissue and restarts the nodes on them. It runs
 # the builder the way a consumer does (docker run with the Docker socket and
-# the project directory at the same path).
+# the project directory at the same path). It runs it as the caller's user
+# with the Docker socket's group, not as root (#28).
 #
 # Why: the builder talks to the nodes itself (the orderer's channel
 # participation API, the peers' admin and lifecycle gRPC calls). A Fabric
@@ -32,6 +33,7 @@ fnb() {
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v "${work}:${work}" -w "${work}" \
     -e FNB_IMAGETAG="${fabric_tag}" \
+    -u "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" \
     ${FNB_SMOKE_DOCKER_OPTS:-} \
     "${image}" --chown "$(id -u):$(id -g)" --channel "${channel}" --force "$@"
 }
