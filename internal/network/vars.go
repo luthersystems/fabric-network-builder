@@ -72,13 +72,16 @@ func ReadVars(dir string) (*Vars, error) {
 	if err := s.Err(); err != nil {
 		return nil, err
 	}
+	if len(v.OrdererIndices) == 0 {
+		// A project generated before the builder wrote ORDERER_INDICES had
+		// one orderer, orderer0, and still commits that variables.sh.
+		v.OrdererIndices = []int{0}
+	}
 	switch {
 	case v.DomainName == "":
 		return nil, fmt.Errorf("%s: no DOMAIN_NAME", path)
 	case len(v.OrgIndices) == 0 || len(v.PeerIndices) == 0:
 		return nil, fmt.Errorf("%s: no ORG_INDICES or PEER_INDICES", path)
-	case len(v.OrdererIndices) == 0:
-		return nil, fmt.Errorf("%s: no ORDERER_INDICES", path)
 	case v.EndorsementPolicy == "":
 		return nil, fmt.Errorf("%s: no ENDORSEMENT_POLICY", path)
 	}
