@@ -221,3 +221,23 @@ func TestGenerateccEmptyVariantsSkipsFirst(t *testing.T) {
 	assert.Equal(t, 0, code, errOut)
 	assert.Contains(t, out, "No chaincodes to generate")
 }
+
+// A network that v0.0.10 generated has the system channel files but no
+// channel genesis block. `up` must start it with the network's own channel
+// scripts, because its orderer has no channel participation API.
+func TestSystemChannelNetworkDetection(t *testing.T) {
+	dir := t.TempDir()
+	e := &env{dir: dir, channel: "luther"}
+	touch := func(rel string) {
+		p := filepath.Join(dir, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte("x"), 0o600))
+	}
+	assert.False(t, e.systemChannelNetwork(), "empty dir")
+	touch("channel-artifacts/genesis.block")
+	assert.False(t, e.systemChannelNetwork(), "no channel.tx")
+	touch("channel-artifacts/channel.tx")
+	assert.True(t, e.systemChannelNetwork(), "v0.0.10 layout")
+	touch("channel-artifacts/luther.block")
+	assert.False(t, e.systemChannelNetwork(), "a new network has all files")
+}
