@@ -1,6 +1,8 @@
 package fabtools
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"io"
 	"os"
 	"path/filepath"
@@ -53,6 +55,11 @@ func TestGenerateExtendAndGenesisBlock(t *testing.T) {
 	ch, err := protoutil.UnmarshalChannelHeader(payload.Header.ChannelHeader)
 	require.NoError(t, err)
 	assert.Equal(t, "luther", ch.ChannelId)
+	// Fabric 2.5 and 3.x peers and orderers check that the header data hash
+	// is the SHA-256 of the joined data. fabric-x-common hashes with length
+	// prefixes, and a Fabric 3 orderer refuses that block (#34).
+	want := sha256.Sum256(bytes.Join(blk.Data.Data, nil))
+	assert.Equal(t, want[:], blk.Header.DataHash)
 	cfg := &cb.ConfigEnvelope{}
 	_, err = protoutil.UnmarshalEnvelopeOfType(env, cb.HeaderType_CONFIG, cfg)
 	require.NoError(t, err)
