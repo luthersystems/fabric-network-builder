@@ -104,6 +104,13 @@ var (
 			{"ctor", `arguments as the peer CLI's -c took them: {"Args":["fn","arg"]}`},
 		},
 	}
+	cmdAnsibleVars = &command{
+		name: "ansible-vars",
+		help: "write the network files as Ansible variables for the mars Kubernetes roles",
+		options: []*option{
+			opt(kindString, "output", "the file to write (default: standard output)", "--output", "-o"),
+		},
+	}
 	cmdDown        = &command{name: "down", help: "teardown network containers"}
 	cmdCertExpires = &command{name: "cert_expiries", help: "print expiration values for certs"}
 	cmdReissue     = &command{
@@ -121,5 +128,5 @@ var (
 			flag("no_backup", true, "do not write .bak copies of replaced certs", "--no-backup"),
 		},
 	}
-	commands = []*command{cmdGenerate, cmdExtend, cmdUp, cmdInstall, cmdInvoke, cmdGeneratecc, cmdDown, cmdCertExpires, cmdReissue}
+	commands = []*command{cmdGenerate, cmdExtend, cmdUp, cmdInstall, cmdInvoke, cmdGeneratecc, cmdAnsibleVars, cmdDown, cmdCertExpires, cmdReissue}
 )

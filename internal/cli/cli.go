@@ -84,6 +84,7 @@ func Run(ctx context.Context, args []string, s Streams) int {
 		cmdUp:          e.up,
 		cmdInstall:     e.install,
 		cmdInvoke:      e.invoke,
+		cmdAnsibleVars: e.ansibleVars,
 		cmdGeneratecc:  e.generatecc,
 		cmdDown:        e.down,
 		cmdCertExpires: e.certExpiries,
