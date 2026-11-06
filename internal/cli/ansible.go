@@ -9,6 +9,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+
+	"github.com/luthersystems/fabric-network-builder/internal/topology"
 )
 
 // ansibleVars writes the variables that the mars Kubernetes roles read the
@@ -22,6 +26,11 @@ import (
 // The values hold the network's private keys, so the file is not world
 // readable.
 func (e *env) ansibleVars() error {
+	if src := e.v.str("generate_from", ""); src != "" {
+		if err := e.generateFrom(src); err != nil {
+			return err
+		}
+	}
 	var buf bytes.Buffer
 	for _, d := range []struct{ key, path string }{
 		{"k8s_fabric_channel_artifacts", "channel-artifacts"},
@@ -49,6 +58,69 @@ func (e *env) ansibleVars() error {
 		return err
 	}
 	return e.owner.chown(out)
+}
+
+// generateFrom generates the network as fnb-gen.sh did: sized by the
+// Ansible env file, skipped when crypto-config exists unless --force.
+func (e *env) generateFrom(src string) error {
+	if exists(e.path("crypto-config")) && !e.force {
+		e.printf("crypto-config exists; keeping it (use --force to generate a new network)\n")
+		return nil
+	}
+	b, err := os.ReadFile(src) //nolint:gosec // a file the caller names
+	if err != nil {
+		return err
+	}
+	o := topology.DefaultOptions()
+	for _, f := range []struct {
+		n   *int
+		key string
+	}{
+		{&o.OrgCount, "num_orgs"},
+		{&o.PeerCount, "num_peers"},
+		{&o.OrdererCount, "num_orderers"},
+	} {
+		s, ferr := ansibleField(b, src, f.key)
+		if ferr != nil {
+			return ferr
+		}
+		if *f.n, ferr = strconv.Atoi(s); ferr != nil {
+			return fmt.Errorf("%s: %s: %w", src, f.key, ferr)
+		}
+	}
+	if o.DomainName, err = ansibleField(b, src, "k8s_fabric_network_domain_root"); err != nil {
+		return err
+	}
+	n, err := topology.New(o)
+	if err != nil {
+		return fmt.Errorf("%s: %w", src, err)
+	}
+	// fnb-gen.sh always ran `generate --force`: the rendered files of a
+	// network directory are replaced.
+	e.force = true
+	return e.doGenerate(n)
+}
+
+// ansibleField reads a top-level scalar from an Ansible vars file the way
+// the template's mustGetAnsibleField did: the first line that starts with
+// "key:". It does not parse the whole file as YAML, because an Ansible
+// value may be a Jinja expression that is not valid YAML.
+func ansibleField(b []byte, src, key string) (string, error) {
+	for line := range strings.Lines(string(b)) {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(line), key+":")
+		if !ok {
+			continue
+		}
+		v := strings.TrimSpace(rest)
+		if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+			v = v[1 : len(v)-1]
+		}
+		if v == "" {
+			break
+		}
+		return v, nil
+	}
+	return "", fmt.Errorf("%s: required field %q is missing or empty", src, key)
 }
 
 // zipDir zips dir (relative to root) as `zip -r - dir` does: entries named

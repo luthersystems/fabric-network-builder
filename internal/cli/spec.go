@@ -109,6 +109,7 @@ var (
 		help: "write the network files as Ansible variables for the mars Kubernetes roles",
 		options: []*option{
 			opt(kindString, "output", "the file to write (default: standard output)", "--output", "-o"),
+			opt(kindString, "generate_from", "first generate the network sized by this Ansible env file (num_orgs, num_peers, num_orderers, k8s_fabric_network_domain_root); an existing crypto-config is kept unless --force", "--generate-from"),
 		},
 	}
 	cmdDown        = &command{name: "down", help: "teardown network containers"}

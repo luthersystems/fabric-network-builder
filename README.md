@@ -60,7 +60,7 @@ list every option.
 | `install NAME VERSION "VARIANTS" /chaincodes/PKG.tar.gz` | Installs each variant's package on every peer, approves it for every org and commits it on the channel, at the next sequence. |
 | `invoke [--init] [--peer peerJ.orgI]... NAME '{"Args":[...]}'` | Submits a chaincode transaction, endorsed by the first peer of each org (or the `--peer` list), and waits until it is committed. `--init` calls the chaincode's Init, for `install --init-required`. Prints the response. |
 | `generatecc NAME VERSION "VARIANTS" /chaincodes/PKG.tar.gz` | Builds the chaincode packages and their package IDs (`chaincodes/<variant>-<version>.id`). |
-| `ansible-vars [-o FILE]` | Writes `k8s_fabric_channel_artifacts`, `k8s_fabric_collections` and `k8s_fabric_crypto_config` (base64 zips of `channel-artifacts/` and `crypto-config/`, base64 `collections.json`) for the mars Kubernetes roles. The file holds private keys and is mode 0600. |
+| `ansible-vars [-o FILE] [--generate-from ENV]` | Writes `k8s_fabric_channel_artifacts`, `k8s_fabric_collections` and `k8s_fabric_crypto_config` (base64 zips of `channel-artifacts/` and `crypto-config/`, base64 `collections.json`) for the mars Kubernetes roles. The file holds private keys and is mode 0600. `--generate-from ENV` first generates the network sized by the Ansible env file (`num_orgs`, `num_peers`, `num_orderers`, `k8s_fabric_network_domain_root`), unless `crypto-config/` exists and `--force` is not given. This replaces the mars sandbox template's `fabric/fnb-gen.sh`. |
 | `down` | Stops the network, removes its volumes and the chaincode containers and images. |
 | `cert_expiries` | Prints the expiry of each certificate. |
 | `reissue` | Renews leaf certificates in place (see below). |
