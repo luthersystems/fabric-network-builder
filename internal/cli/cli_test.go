@@ -137,14 +137,17 @@ func TestGenerateccCCaaS(t *testing.T) {
 	code, _, errOut := runCLI(t, "", "-f", "generatecc", "--ccaas", "--image-override", "external=foo/bar:1.2",
 		"cc", "1.0", "a-b external c", "/chaincodes/cc-1.0.tar.gz")
 	require.Equal(t, 0, code, errOut)
-	for _, n := range []string{"a-b", "external", "c"} {
-		assert.FileExists(t, "chaincodes/"+n+"-1.0.tar.gz")
-		id, err := os.ReadFile("chaincodes/" + n + "-1.0.id")
-		require.NoError(t, err)
-		assert.True(t, strings.HasPrefix(string(id), n+"-1.0:"))
-	}
 	got, err := os.ReadFile("docker-compose-ccaas.yaml")
 	require.NoError(t, err)
+	for _, n := range []string{"a-b", "external", "c"} {
+		assert.FileExists(t, "chaincodes/"+n+"-1.0.tar.gz")
+		id, rerr := os.ReadFile("chaincodes/" + n + "-1.0.id")
+		require.NoError(t, rerr)
+		assert.True(t, strings.HasPrefix(string(id), n+"-1.0:"))
+		// The compose file has the package ID itself; the goldens have
+		// "feed" for the hash.
+		got = bytes.ReplaceAll(got, bytes.TrimSpace(id), []byte(n+"-1.0:feed"))
+	}
 	want, err := os.ReadFile(filepath.Join(ccaasGoldens, "three", "docker-compose-ccaas.yaml"))
 	require.NoError(t, err)
 	assert.Equal(t, string(want), string(got))
@@ -247,9 +250,9 @@ func TestSystemChannelNetworkDetection(t *testing.T) {
 	assert.False(t, e.systemChannelNetwork(), "a new network has all files")
 }
 
-// The CCaaS services read their package ID from CCID_<NAME>. The builder
-// takes it from the chaincodes/<name>-<version>.id files that generatecc
-// writes, so a consumer needs no scripts/env.sh or .env file.
+// A compose file that v0.0.x wrote gives each CCaaS service "$CCID_<NAME>".
+// The builder takes it from the chaincodes/<name>-<version>.id files that
+// generatecc writes, so a consumer needs no scripts/env.sh or .env file.
 func TestChaincodeIDsFromIDFiles(t *testing.T) {
 	dir := t.TempDir()
 	cc := filepath.Join(dir, "chaincodes")

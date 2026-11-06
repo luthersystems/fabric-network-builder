@@ -3,7 +3,7 @@ services:
 {{- range $cc := .Chaincodes }}
   {{$cc.ServiceName}}:
     image: {{$cc.Image}}
-    command: ["${{$cc.CCIDEnvVar}}"]
+    command: ["{{$cc.ChaincodeID}}"]
     ports:
       - "{{$cc.Port}}:8080"
     networks:

@@ -99,13 +99,16 @@ func TestNetworkMatchesPythonGoldens(t *testing.T) {
 	}
 }
 
-func TestCCaaSComposeMatchesPythonGoldens(t *testing.T) {
+// Each CCaaS service gets its package ID as a literal, so the compose file
+// needs no CCID_<NAME> variable. (The Python builder wrote "$CCID_<NAME>",
+// and a name with "-" got a variable that scripts/env.sh never set.)
+func TestCCaaSComposeGoldens(t *testing.T) {
 	cases := map[string][]CCaaSService{
-		"one": {{ServiceName: "substrate-peer0", CCIDEnvVar: "CCID_SUBSTRATE", Port: 9080, Image: "luthersystems/substrate:$CHAINCODE_VERSION"}},
+		"one": {{ServiceName: "substrate-peer0", ChaincodeID: "substrate-1.0:feed", Port: 9080, Image: "luthersystems/substrate:$CHAINCODE_VERSION"}},
 		"three": {
-			{ServiceName: "a-b-peer0", CCIDEnvVar: "CCID_A-B", Port: 9080, Image: "luthersystems/substrate:$CHAINCODE_VERSION"},
-			{ServiceName: "external-peer0", CCIDEnvVar: "CCID_EXTERNAL", Port: 9081, Image: "foo/bar:1.2"},
-			{ServiceName: "c-peer0", CCIDEnvVar: "CCID_C", Port: 9082, Image: "luthersystems/substrate:$CHAINCODE_VERSION"},
+			{ServiceName: "a-b-peer0", ChaincodeID: "a-b-1.0:feed", Port: 9080, Image: "luthersystems/substrate:$CHAINCODE_VERSION"},
+			{ServiceName: "external-peer0", ChaincodeID: "external-1.0:feed", Port: 9081, Image: "foo/bar:1.2"},
+			{ServiceName: "c-peer0", ChaincodeID: "c-1.0:feed", Port: 9082, Image: "luthersystems/substrate:$CHAINCODE_VERSION"},
 		},
 	}
 	for name, services := range cases {
@@ -117,4 +120,6 @@ func TestCCaaSComposeMatchesPythonGoldens(t *testing.T) {
 			assert.Equal(t, string(want), string(got))
 		})
 	}
+	_, err := CCaaSCompose([]CCaaSService{{ServiceName: "x-peer0", ChaincodeID: `x-1.0:"$HOME"`, Port: 9080, Image: "i"}})
+	assert.Error(t, err, "an ID that is not a Fabric package ID")
 }

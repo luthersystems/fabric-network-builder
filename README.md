@@ -118,9 +118,10 @@ With that invocation the generated compose file assigns
 `luthersystems/externalcc:$CHAINCODE_VERSION` to `external-peer0` and leaves
 `a-peer0`/`b-peer0` on the substrate default.
 
-Each service reads its package ID from `CCID_<NAME>`. The builder sets it
-from `chaincodes/<name>-<version>.id`, so you do not need a `.env` file. A
-value in `.env` or the environment is replaced by the one from the `.id` file.
+Each service gets its package ID (`chaincodes/<name>-<version>.id`) as its
+command, written into the compose file, so you need no `.env` file. A compose
+file from v0.0.x has `$CCID_<NAME>` instead; for it the builder sets
+`CCID_<NAME>` from the `.id` files.
 
 ## Renewing certificates
 
