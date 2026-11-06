@@ -19,24 +19,27 @@ def _extract_resolve():
 FUNC = _extract_resolve()
 
 
+# The command is a fixed string: the function body and the baked tag go in
+# through the environment, so no test input becomes shell code.
+_SCRIPT = ('eval "$RESOLVE_FUNC"\n'
+           'IMAGETAG="$BAKED_IMAGETAG"\n'
+           'resolveImageTags || exit 1\n'
+           'echo "$IMAGETAG $TOOLSIMAGETAG"\n')
+
+
 def _run(baked, **env):
     full = {k: v for k, v in os.environ.items() if not k.startswith('FNB_')}
-    full.update(env)
-    return subprocess.run(
-        ['bash', '-c', 'IMAGETAG=%s\n' % baked + FUNC +
-         '\nresolveImageTags || exit 1\necho "$IMAGETAG $TOOLSIMAGETAG"\n'],
-        env=full, capture_output=True, text=True)
+    full.update(env, RESOLVE_FUNC=FUNC, BAKED_IMAGETAG=baked)
+    return subprocess.run(['bash', '-c', _SCRIPT],
+                          env=full, capture_output=True, text=True)
 
 
 def _resolve(**env):
     '''Run resolveImageTags with IMAGETAG baked at 2.5.16, as the image's
     byfn-vars.sh sets it, and return (IMAGETAG, TOOLSIMAGETAG).'''
-    full = {k: v for k, v in os.environ.items() if not k.startswith('FNB_')}
-    full.update(env)
-    r = subprocess.run(
-        ['bash', '-c', 'IMAGETAG=2.5.16\n' + FUNC +
-         '\nresolveImageTags\necho "$IMAGETAG $TOOLSIMAGETAG"\n'],
-        env=full, capture_output=True, text=True, check=True)
+    r = _run('2.5.16', **env)
+    if r.returncode != 0:
+        raise AssertionError('resolveImageTags failed: ' + r.stderr)
     return tuple(r.stdout.split())
 
 
