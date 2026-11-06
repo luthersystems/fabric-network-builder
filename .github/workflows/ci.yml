@@ -41,6 +41,12 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: ko-build/setup-ko@v0.10
+        with:
+          version: v0.19.1
       - name: Build
         run: make
         timeout-minutes: 10
@@ -61,8 +67,14 @@ jobs:
           - 3.1.4
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: ko-build/setup-ko@v0.10
+        with:
+          version: v0.19.1
       - name: Build
-        run: docker build -t fnb-ci .
+        run: make && docker tag luthersystems/fabric-network-builder:latest fnb-ci
         timeout-minutes: 15
       - name: Compare with the Fabric release tools
         run: tests/fabric-oracle.sh "${{ matrix.fabric }}" fnb-ci
@@ -71,15 +83,16 @@ jobs:
         run: tests/network-smoke.sh fnb-ci "${{ matrix.fabric }}"
         timeout-minutes: 15
 
-  # The image must run the build-harden kit last and must not trust a
-  # distrusted CA (such as eMudhra/emSign, CVE-2026-111943), on each platform
-  # that release.yml publishes. The check reads the exported image with the
-  # runner's openssl, so it does not rely on the image's own tools.
+  # The image must not trust a distrusted CA (such as eMudhra/emSign,
+  # CVE-2026-111943), on each platform that release.yml publishes. The base
+  # image (.ko.yaml) runs the build-harden kit last; ko only adds the binary.
+  # The check reads the exported image with the runner's openssl, so it does
+  # not rely on the image's own tools.
   #
   # The check is the org's shared action, not a script in this repo: there is
   # one copy of the check logic, and a fix reaches every repo when v1 moves.
-  # It reads the kit (and so the policy) from the build-harden stage that the
-  # Dockerfile pins, so the build and the check use the same kit.
+  # ko has no Dockerfile, so the kit is given here. Keep it at the buildenv
+  # release of the base image in .ko.yaml.
   trust-store:
     name: Trust store (${{ matrix.platform }})
     runs-on: ubuntu-22.04
@@ -91,20 +104,28 @@ jobs:
           - linux/arm64
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: ko-build/setup-ko@v0.10
+        with:
+          version: v0.19.1
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
       - name: Build
-        run: docker buildx build --platform "${{ matrix.platform }}" --load -t fnb-ci .
-        timeout-minutes: 30
+        run: make KO_PLATFORM="${{ matrix.platform }}" && docker tag luthersystems/fabric-network-builder:latest fnb-ci
+        timeout-minutes: 15
       - name: Check the image
         uses: luthersystems/.github/actions/harden-check@v1
         with:
-          dockerfiles: Dockerfile
+          kit: luthersystems/build-harden:v0.1.53@sha256:f0830ffa253727ce69abe815e65434a5fc16973594b37c938774bd6e1ff4e4e6
           images: fnb-ci ${{ matrix.platform }}
         timeout-minutes: 10
-      # The image must still start after the kit ran.
-      - name: Check that the image starts
-        run: docker run --rm --platform "${{ matrix.platform }}" fnb-ci --help
+      # The image must start, and run as a user other than root (#28).
+      - name: Check that the image starts as non-root
+        run: |
+          docker run --rm --platform "${{ matrix.platform }}" fnb-ci --help
+          user=$(docker image inspect -f '{{.Config.User}}' fnb-ci)
+          echo "image user: ${user:-<none>}"
+          case "${user}" in ""|root|0|0:*) echo "the image runs as root" >&2; exit 1 ;; esac
         timeout-minutes: 5

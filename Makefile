@@ -4,13 +4,11 @@ include ${PROJECT_REL_DIR}/common.mk
 DOCKER_IMAGE=luthersystems/fabric-network-builder
 DOCKER_IMAGE_PUBLIC_FQN=docker.io/${DOCKER_IMAGE}
 
-FABRIC_IMAGE_TAG=$(FABRIC_VERSION)
-FABRIC_BASE_IMAGE_TAG=$(FABRIC_BASE_VERSION)
-FABRIC_CA_IMAGE_TAG=$(FABRIC_CA_VERSION)
-FABRIC_IMAGE_NS=hyperledger
-
-DOCKER_IMAGE_TARGET=build/images/${DOCKER_IMAGE}/${BUILD_VERSION}${TAG_SUFFIX}/.dummy
-DOCKER_MANIFEST_TARGET=build/manifest/${DOCKER_IMAGE}/${BUILD_VERSION}/.dummy
+# ko builds the image (.ko.yaml). Its ldflags read the default Fabric image
+# tags of the generated network from the environment.
+export FABRIC_VERSION FABRIC_CA_VERSION FABRIC_BASE_VERSION
+KO ?= ko
+KO_PLATFORM ?= linux/$(shell go env GOARCH)
 
 .PHONY: default
 default: docker-build
@@ -30,38 +28,18 @@ test:
 static-checks:
 	golangci-lint run ./...
 
+# docker-build loads the image for one platform (KO_PLATFORM, default the
+# host's) into the local daemon as ${DOCKER_IMAGE}:latest.
 .PHONY: docker-build
-docker-build: ${DOCKER_IMAGE_TARGET}
-	@
+docker-build:
+	ref=$$(KO_DOCKER_REPO=ko.local ${KO} build --bare --platform=${KO_PLATFORM} ./cmd/fabric-network-builder) && \
+		${DOCKER} tag "$$ref" ${DOCKER_IMAGE}:latest
 
+# docker-push publishes the amd64 and arm64 images and their manifest list to
+# Docker Hub as ${BUILD_VERSION} and latest. Log in to Docker Hub first.
 .PHONY: docker-push
-docker-push: docker-build
-	${DOCKER} push ${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION}${TAG_SUFFIX}
-	${DOCKER} push ${DOCKER_IMAGE_PUBLIC_FQN}:latest
-
-${DOCKER_IMAGE_TARGET}: Dockerfile Makefile go.mod go.sum $(shell find cmd internal third_party -type f)
-	${DOCKER} build \
-		--build-arg BASEIMAGETAG=${FABRIC_BASE_IMAGE_TAG} \
-		--build-arg IMAGETAG=${FABRIC_IMAGE_TAG} \
-		--build-arg CAIMAGETAG=${FABRIC_CA_IMAGE_TAG} \
-		--build-arg IMAGENS=${FABRIC_IMAGE_NS} \
-		-t ${DOCKER_IMAGE} .
-	${DOCKER} tag ${DOCKER_IMAGE}:latest ${DOCKER_IMAGE}:${BUILD_VERSION}${TAG_SUFFIX}
-	${MKDIR_P} $(dir $@)
-	${TOUCH} $@
-
-.PHONY: push-manifests
-push-manifests: ${DOCKER_MANIFEST_TARGET}
-	@
-
-${DOCKER_MANIFEST_TARGET}:
-	${DOCKER} buildx imagetools create \
-		--tag ${DOCKER_IMAGE_PUBLIC_FQN}:latest \
-		${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION}-arm64 \
-		${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION}-amd64
-	${DOCKER} buildx imagetools create \
-		--tag ${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION} \
-		${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION}-arm64 \
-		${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION}-amd64
-	${MKDIR_P} $(dir $@)
-	${TOUCH} $@
+docker-push:
+	KO_DOCKER_REPO=${DOCKER_IMAGE_PUBLIC_FQN} ${KO} build --bare \
+		--platform=linux/amd64,linux/arm64 \
+		--tags=${BUILD_VERSION},latest \
+		./cmd/fabric-network-builder
