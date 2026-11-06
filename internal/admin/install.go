@@ -13,7 +13,7 @@ import (
 	"github.com/hyperledger/fabric-admin-sdk/pkg/chaincode"
 	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	lb "github.com/hyperledger/fabric-protos-go-apiv2/peer/lifecycle"
-	"github.com/hyperledger/fabric-x-common/common/policydsl"
+	"github.com/luthersystems/fabric-network-builder/third_party/fabric/policydsl"
 
 	cc "github.com/luthersystems/fabric-network-builder/internal/chaincode"
 )

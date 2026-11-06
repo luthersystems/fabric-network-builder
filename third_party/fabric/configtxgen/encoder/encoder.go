@@ -18,7 +18,7 @@ import (
 	"github.com/hyperledger/fabric-x-common/common/channelconfig"
 	"github.com/hyperledger/fabric-x-common/common/genesis"
 	"github.com/hyperledger/fabric-x-common/common/policies"
-	"github.com/hyperledger/fabric-x-common/common/policydsl"
+	"github.com/luthersystems/fabric-network-builder/third_party/fabric/policydsl"
 	"github.com/hyperledger/fabric-x-common/common/util"
 	"github.com/luthersystems/fabric-network-builder/third_party/fabric/configtxgen/genesisconfig"
 	"github.com/luthersystems/fabric-network-builder/third_party/fabric/configtxlator/update"

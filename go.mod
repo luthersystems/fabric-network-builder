@@ -3,6 +3,7 @@ module github.com/luthersystems/fabric-network-builder
 go 1.27.3
 
 require (
+	github.com/Knetic/govaluate v3.0.0+incompatible
 	github.com/compose-spec/compose-go/v2 v2.16.2
 	github.com/containerd/errdefs v1.0.0
 	github.com/docker/cli v29.9.2+incompatible
