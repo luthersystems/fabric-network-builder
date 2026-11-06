@@ -74,13 +74,13 @@ jobs:
         with:
           version: v0.19.1
       - name: Build
-        run: make && docker tag luthersystems/fabric-network-builder:latest fnb-ci
+        run: make
         timeout-minutes: 15
       - name: Compare with the Fabric release tools
-        run: tests/fabric-oracle.sh "${{ matrix.fabric }}" fnb-ci
+        run: tests/fabric-oracle.sh "${{ matrix.fabric }}" luthersystems/fabric-network-builder:latest
         timeout-minutes: 10
       - name: Bring a network up
-        run: tests/network-smoke.sh fnb-ci "${{ matrix.fabric }}"
+        run: tests/network-smoke.sh luthersystems/fabric-network-builder:latest "${{ matrix.fabric }}"
         timeout-minutes: 15
 
   # The image must not trust a distrusted CA (such as eMudhra/emSign,
@@ -113,19 +113,19 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
       - name: Build
-        run: make KO_PLATFORM="${{ matrix.platform }}" && docker tag luthersystems/fabric-network-builder:latest fnb-ci
+        run: make KO_PLATFORM="${{ matrix.platform }}"
         timeout-minutes: 15
       - name: Check the image
         uses: luthersystems/.github/actions/harden-check@v1
         with:
           kit: luthersystems/build-harden:v0.1.53@sha256:f0830ffa253727ce69abe815e65434a5fc16973594b37c938774bd6e1ff4e4e6
-          images: fnb-ci ${{ matrix.platform }}
+          images: luthersystems/fabric-network-builder:latest ${{ matrix.platform }}
         timeout-minutes: 10
       # The image must start, and run as a user other than root (#28).
       - name: Check that the image starts as non-root
         run: |
-          docker run --rm --platform "${{ matrix.platform }}" fnb-ci --help
-          user=$(docker image inspect -f '{{.Config.User}}' fnb-ci)
+          docker run --rm --platform "${{ matrix.platform }}" luthersystems/fabric-network-builder:latest --help
+          user=$(docker image inspect -f '{{.Config.User}}' luthersystems/fabric-network-builder:latest)
           echo "image user: ${user:-<none>}"
           case "${user}" in ""|root|0|0:*) echo "the image runs as root" >&2; exit 1 ;; esac
         timeout-minutes: 5
