@@ -17,6 +17,8 @@ FILES = {
     "internal/configtxgen/genesisconfig/config.go": "configtxgen/genesisconfig/config.go",
     "internal/configtxlator/update/update.go": "configtxlator/update/update.go",
     "internal/pkg/identity/identity.go": "pkg/identity/identity.go",
+    "common/policydsl/policyparser.go": "policydsl/policyparser.go",
+    "common/policydsl/policydsl_builder.go": "policydsl/policydsl_builder.go",
     "cmd/cryptogen/main.go": "cryptogen/cryptogen.go",
 }
 IMPORTS = {
@@ -24,6 +26,9 @@ IMPORTS = {
     "github.com/hyperledger/fabric/internal/configtxgen/": MOD + "/configtxgen/",
     "github.com/hyperledger/fabric/internal/configtxlator/": MOD + "/configtxlator/",
     "github.com/hyperledger/fabric/internal/pkg/": MOD + "/pkg/",
+    # fabric-x-common's policydsl parses some policies differently (lower-case
+    # and/or, repeated principals), so policies come from Fabric's own copy.
+    "github.com/hyperledger/fabric/common/policydsl": MOD + "/policydsl",
     # The public packages come from fabric-x-common, which has the same
     # packages under the same paths. The github.com/hyperledger/fabric
     # module has no release with a Go semver tag, so govulncheck reports

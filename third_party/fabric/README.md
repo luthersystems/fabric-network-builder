@@ -16,6 +16,7 @@ hyperledger/fabric v3.1.4, under the Apache License 2.0 (`LICENSE`).
 | `configtxgen/genesisconfig/config.go` | `internal/configtxgen/genesisconfig/config.go` |
 | `configtxlator/update` | `internal/configtxlator/update` |
 | `pkg/identity` | `internal/pkg/identity` |
+| `policydsl` | `common/policydsl` |
 
 ## Changes to the copies
 
@@ -32,6 +33,14 @@ hyperledger/fabric v3.1.4, under the Apache License 2.0 (`LICENSE`).
   the fabric-x-common genesis factory sets the Fabric-X block data hash
   (a length before each item). `internal/fabtools` sets the Fabric hash
   again, because a Fabric 3 orderer refuses the block otherwise.
+- `policydsl` is a public package, but the builder uses Fabric's copy, not
+  fabric-x-common's. The fabric-x-common parser rejects lower-case `and` and
+  `or`, and keeps one identity for a principal named twice. The peer CLI
+  then makes a different chaincode definition, so approvals do not match.
+- Other fabric-x-common differences do not change the builder's output from
+  cryptogen input. Its MSP loader also reads a `knowncerts/` folder, which
+  cryptogen does not make. `tests/fabric-oracle.sh` compares the builder
+  with the Fabric release tools on every CI run.
 - `cryptogen.go` is package `cryptogen`, not `main`. The kingpin flags are
   package variables, and each `os.Exit` is a `panic` with the same message,
   so the builder can report the error and continue.
