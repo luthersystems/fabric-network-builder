@@ -94,3 +94,16 @@ func TestErrors(t *testing.T) {
 	require.ErrorAs(t, err, &h)
 	assert.Equal(t, cmdGenerate, h.cmd)
 }
+
+// argparse reads a negative number after an option as its value, and splits
+// a bundle of short flags; consumers rely on both.
+func TestNegativeNumbersAndShortBundles(t *testing.T) {
+	_, _, v := mustParse(t, "generate", "--min-endorsers", "-1", "--req-peer-count", "-1")
+	assert.Equal(t, -1, v.integer("min_endorsers", 0))
+	assert.Equal(t, -1, v.integer("req_peer_count", 0))
+	_, _, v = mustParse(t, "-fs", "couchdb", "up")
+	assert.True(t, v.boolean("force", false))
+	assert.Equal(t, "couchdb", v.str("storage", ""))
+	_, _, v = mustParse(t, "-fscouchdb", "up")
+	assert.Equal(t, "couchdb", v.str("storage", ""))
+}
