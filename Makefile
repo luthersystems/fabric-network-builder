@@ -4,7 +4,6 @@ include ${PROJECT_REL_DIR}/common.mk
 DOCKER_IMAGE=luthersystems/fabric-network-builder
 DOCKER_IMAGE_PUBLIC_FQN=docker.io/${DOCKER_IMAGE}
 
-FABRIC_CRYPTOGEN_VERSION=$(FABRIC_VERSION)
 FABRIC_IMAGE_TAG=$(FABRIC_VERSION)
 FABRIC_BASE_IMAGE_TAG=$(FABRIC_BASE_VERSION)
 FABRIC_CA_IMAGE_TAG=$(FABRIC_CA_VERSION)
@@ -23,7 +22,13 @@ clean:
 
 .PHONY: test
 test:
-	python3 -m unittest discover -s tests -v
+	go test ./...
+
+# The CI Go job and a local check run the same linter as the org's shared
+# Quality workflow.
+.PHONY: static-checks
+static-checks:
+	golangci-lint run ./...
 
 .PHONY: docker-build
 docker-build: ${DOCKER_IMAGE_TARGET}
@@ -34,10 +39,8 @@ docker-push: docker-build
 	${DOCKER} push ${DOCKER_IMAGE_PUBLIC_FQN}:${BUILD_VERSION}${TAG_SUFFIX}
 	${DOCKER} push ${DOCKER_IMAGE_PUBLIC_FQN}:latest
 
-${DOCKER_IMAGE_TARGET}: Dockerfile Makefile
+${DOCKER_IMAGE_TARGET}: Dockerfile Makefile go.mod go.sum $(shell find cmd internal third_party -type f)
 	${DOCKER} build \
-		--build-arg FABRIC_VERSION=${FABRIC_VERSION} \
-		--build-arg FABRIC_CRYPTOGEN_VERSION=${FABRIC_CRYPTOGEN_VERSION} \
 		--build-arg BASEIMAGETAG=${FABRIC_BASE_IMAGE_TAG} \
 		--build-arg IMAGETAG=${FABRIC_IMAGE_TAG} \
 		--build-arg CAIMAGETAG=${FABRIC_CA_IMAGE_TAG} \
