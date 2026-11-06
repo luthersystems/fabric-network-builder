@@ -223,8 +223,9 @@ func TestGenerateccEmptyVariantsSkipsFirst(t *testing.T) {
 }
 
 // A network that v0.0.10 generated has the system channel files but no
-// channel genesis block. `up` must start it with the network's own channel
-// scripts, because its orderer has no channel participation API.
+// channel genesis block. `up` must create its channel from the channel creation
+// transaction (CreateSystemChannel): its orderer has no channel
+// participation API.
 func TestSystemChannelNetworkDetection(t *testing.T) {
 	dir := t.TempDir()
 	e := &env{dir: dir, channel: "luther"}

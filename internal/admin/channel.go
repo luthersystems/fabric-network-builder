@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hyperledger/fabric-admin-sdk/pkg/channel"
+	cb "github.com/hyperledger/fabric-protos-go-apiv2/common"
 	pb "github.com/hyperledger/fabric-protos-go-apiv2/peer"
 	"github.com/hyperledger/fabric-x-common/protoutil"
 
@@ -162,6 +163,12 @@ func (n *Network) JoinPeers(ctx context.Context, channelID string) error {
 	if err != nil {
 		return err
 	}
+	return n.joinPeers(ctx, channelID, block)
+}
+
+// joinPeers joins every peer that is not yet a member to channelID with
+// the channel's genesis block.
+func (n *Network) joinPeers(ctx context.Context, channelID string, block *cb.Block) error {
 	return n.forEachPeer(func(org, peer int) error {
 		p, err := n.dialPeer(org, peer)
 		if err != nil {
