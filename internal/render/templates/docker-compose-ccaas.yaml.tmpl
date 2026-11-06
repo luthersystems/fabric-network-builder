@@ -1,0 +1,18 @@
+version: '3.7'
+services:
+{{- range $cc := .Chaincodes }}
+  {{$cc.ServiceName}}:
+    image: {{$cc.Image}}
+    command: ["${{$cc.CCIDEnvVar}}"]
+    ports:
+      - "{{$cc.Port}}:8080"
+    networks:
+      - byfn
+    environment:
+      CHAINCODE_OTLP_TRACER_ENDPOINT:
+      CHAINCODE_LOG_LEVEL:
+{{ end -}}
+
+networks:
+  byfn:
+    name: byfn

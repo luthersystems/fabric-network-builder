@@ -1,0 +1,208 @@
+client:
+  #organization: org1
+  logging:
+    level: error
+  discovery:
+    timeout:
+      connection: 10s
+      response: 10s
+  peer:
+    timeout:
+      connection: 10s
+      # this timeout must be set to be longer than the longest execution time
+      # of any query/transaction. after this time, the peer is assumed to be
+      # down rather than working.
+      response: 10s
+      discovery:
+        greylistExpiry: 10s
+  eventService:
+    timeout:
+      registrationResponse: 15s
+  orderer:
+    timeout:
+      connection: 10s
+      response: 10s
+  global:
+    timeout:
+      query: 3m
+      execute: 3m
+      resmgmt: 3m
+    cache:
+      connectionIdle: 2m
+      eventServiceIdle: 2m
+      channelConfig: 2m
+      channelMembership: 2m
+      discovery: 2m
+      selection: 2m
+  cryptoconfig:
+    path: "/tmp/fabric/crypto-config"
+  BCCSP:
+    security:
+     enabled: true
+     default:
+      provider: "SW"
+     hashAlgorithm: "SHA2"
+     softVerify: true
+     level: 256
+  credentialStore:
+    path: "/tmp/state-store"
+    cryptoStore:
+      path: /tmp/msp
+  tlsCerts:
+    client:
+      key:
+        path: "/tmp/fabric/crypto-config/peerOrganizations/${ORG}.${DOMAIN_NAME}/users/Admin@${ORG}.${DOMAIN_NAME}/tls/client.key"
+      cert:
+        path: "/tmp/fabric/crypto-config/peerOrganizations/${ORG}.${DOMAIN_NAME}/users/Admin@${ORG}.${DOMAIN_NAME}/tls/client.crt"
+
+channels:
+  luther:
+    peers:
+      peer0.org1.example.org:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true
+      peer0.org2.example.org:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true
+      peer0.org3.example.org:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true
+      policies:
+      queryChannelConfig:
+        minResponses: 1
+        maxTargets: 1
+        retryOpts:
+          attempts: 5
+          initialBackoff: 500ms
+          maxBackoff: 5s
+          backoffFactor: 2.0
+
+organizations:
+  org1:
+    mspid: Org1MSP
+    cryptoPath:  peerOrganizations/org1.example.org/users/{username}@org1.example.org/msp
+    peers:
+      - peer0.org1.example.org
+    certificateAuthorities:
+      - ca.org1.example.org
+  org2:
+    mspid: Org2MSP
+    cryptoPath:  peerOrganizations/org2.example.org/users/{username}@org2.example.org/msp
+    peers:
+      - peer0.org2.example.org
+    certificateAuthorities:
+      - ca.org2.example.org
+  org3:
+    mspid: Org3MSP
+    cryptoPath:  peerOrganizations/org3.example.org/users/{username}@org3.example.org/msp
+    peers:
+      - peer0.org3.example.org
+    certificateAuthorities:
+      - ca.org3.example.org
+  ordererorg:
+    mspID: "OrdererOrg"
+    cryptoPath: ordererOrganizations/example.org/users/{username}@example.org/msp
+
+orderers:
+  _default:
+    grpcOptions:
+      keep-alive-time: 30s
+      keep-alive-timeout: 20s
+      keep-alive-permit: false
+      fail-fast: true
+      allow-insecure: false
+  orderer0.example.org:
+    url: orderer0.example.org:7050
+    grpcOptions:
+      ssl-target-name-override: orderer0.example.org
+    tlsCACerts:
+      path: "/tmp/fabric/crypto-config/ordererOrganizations/example.org/tlsca/tlsca.example.org-cert.pem"
+  orderer1.example.org:
+    url: orderer1.example.org:7050
+    grpcOptions:
+      ssl-target-name-override: orderer1.example.org
+    tlsCACerts:
+      path: "/tmp/fabric/crypto-config/ordererOrganizations/example.org/tlsca/tlsca.example.org-cert.pem"
+  orderer2.example.org:
+    url: orderer2.example.org:7050
+    grpcOptions:
+      ssl-target-name-override: orderer2.example.org
+    tlsCACerts:
+      path: "/tmp/fabric/crypto-config/ordererOrganizations/example.org/tlsca/tlsca.example.org-cert.pem"
+
+peers:
+  _default:
+    grpcOptions:
+      keep-alive-time: 30s
+      keep-alive-timeout: 20s
+      keep-alive-permit: false
+      fail-fast: true
+      allow-insecure: false
+  peer0.org1.example.org:
+    url: peer0.org1.example.org:7051
+    eventUrl: peer0.org1.example.org:7053
+    grpcOptions:
+      ssl-target-name-override: peer0.org1.example.org
+    tlsCACerts:
+      path: "/tmp/fabric/crypto-config/peerOrganizations/org1.example.org/tlsca/tlsca.org1.example.org-cert.pem"
+  peer0.org2.example.org:
+    url: peer0.org2.example.org:7051
+    eventUrl: peer0.org2.example.org:7053
+    grpcOptions:
+      ssl-target-name-override: peer0.org2.example.org
+    tlsCACerts:
+      path: "/tmp/fabric/crypto-config/peerOrganizations/org2.example.org/tlsca/tlsca.org2.example.org-cert.pem"
+  peer0.org3.example.org:
+    url: peer0.org3.example.org:7051
+    eventUrl: peer0.org3.example.org:7053
+    grpcOptions:
+      ssl-target-name-override: peer0.org3.example.org
+    tlsCACerts:
+      path: "/tmp/fabric/crypto-config/peerOrganizations/org3.example.org/tlsca/tlsca.org3.example.org-cert.pem"
+
+certificateAuthorities:
+ ca.org1.example.org:
+   url: https://ca.org1.example.org:7054
+   tlsCACerts:
+    path: "/tmp/fabric/crypto-config/peerOrganizations/org1.example.org/ca/ca.org1.example.org-cert.pem"
+    client:
+      key:
+        path: "/tmp/fabric/crypto-config/peerOrganizations/org1.example.org/users/Admin@org1.example.org/tls/client.key"
+      cert:
+        path: "/tmp/fabric/crypto-config/peerOrganizations/org1.example.org/users/Admin@org1.example.org/tls/client.crt"
+   registrar:
+     enrollId: admin
+     enrollSecret: adminpw
+   caName: ca.org1.example.org
+ ca.org2.example.org:
+   url: https://ca.org2.example.org:7054
+   tlsCACerts:
+    path: "/tmp/fabric/crypto-config/peerOrganizations/org2.example.org/ca/ca.org2.example.org-cert.pem"
+    client:
+      key:
+        path: "/tmp/fabric/crypto-config/peerOrganizations/org2.example.org/users/Admin@org2.example.org/tls/client.key"
+      cert:
+        path: "/tmp/fabric/crypto-config/peerOrganizations/org2.example.org/users/Admin@org2.example.org/tls/client.crt"
+   registrar:
+     enrollId: admin
+     enrollSecret: adminpw
+   caName: ca.org2.example.org
+ ca.org3.example.org:
+   url: https://ca.org3.example.org:7054
+   tlsCACerts:
+    path: "/tmp/fabric/crypto-config/peerOrganizations/org3.example.org/ca/ca.org3.example.org-cert.pem"
+    client:
+      key:
+        path: "/tmp/fabric/crypto-config/peerOrganizations/org3.example.org/users/Admin@org3.example.org/tls/client.key"
+      cert:
+        path: "/tmp/fabric/crypto-config/peerOrganizations/org3.example.org/users/Admin@org3.example.org/tls/client.crt"
+   registrar:
+     enrollId: admin
+     enrollSecret: adminpw
+   caName: ca.org3.example.org

@@ -1,0 +1,7 @@
+#!/usr/bin/env false
+
+DOMAIN_NAME="{{$.DOMAIN_NAME}}"
+ORG_INDICES=( {{join $.ORG_INDICES " "}} )
+PEER_INDICES=( {{join $.PEER_INDICES " "}} )
+ORDERER_INDICES=( {{join $.ORDERER_INDICES " "}} )
+ENDORSEMENT_POLICY="{{$.ENDORSEMENT_POLICY}}"
