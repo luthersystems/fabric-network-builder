@@ -200,8 +200,8 @@ func Network(n *topology.Network) ([]File, error) {
 type CCaaSService struct {
 	ServiceName string
 	CCIDEnvVar  string
-	Port        int
 	Image       string
+	Port        int
 }
 
 // CCaaSCompose renders docker-compose-ccaas.yaml. It has no final newline,
@@ -220,7 +220,8 @@ func CCaaSCompose(services []CCaaSService) ([]byte, error) {
 func Write(dir string, files []File, chown func(string) error, out io.Writer) error {
 	for _, d := range Dirs {
 		p := filepath.Join(dir, d)
-		if err := os.MkdirAll(p, 0o755); err != nil {
+		// 0755: the node containers read these files as another user.
+		if err := os.MkdirAll(p, 0o755); err != nil { //nolint:gosec // see above
 			return err
 		}
 		if chown != nil {

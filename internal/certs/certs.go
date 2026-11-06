@@ -58,7 +58,7 @@ func Expiries(root string) ([]Expiry, error) {
 		if d.IsDir() || (!strings.HasSuffix(p, ".pem") && !strings.HasSuffix(p, ".crt")) {
 			return nil
 		}
-		b, err := os.ReadFile(p)
+		b, err := os.ReadFile(p) //nolint:gosec // walked from the operator's crypto-config tree
 		if err != nil {
 			return err
 		}
@@ -177,13 +177,13 @@ var nodeParents = []string{"peers", "orderers", "users"}
 
 // Leaf is one leaf certificate of a node.
 type Leaf struct {
+	Cert     *x509.Certificate
+	Expiry   time.Time
 	Node     string
 	Org      string
 	Kind     Kind
 	CertPath string
-	Cert     *x509.Certificate
 	CADir    string
-	Expiry   time.Time
 }
 
 // Discover walks a cryptogen-style crypto-config tree and returns one Leaf
@@ -239,24 +239,30 @@ func reissueErrorf(format string, args ...any) error {
 
 func publicKeyDER(pub any) ([]byte, error) { return x509.MarshalPKIXPublicKey(pub) }
 
+// CA is an issuing CA: its certificate and private key.
+type CA struct {
+	Cert *x509.Certificate
+	Key  crypto.Signer
+}
+
 // ResolveCA finds the CA certificate in caDir that issued leaf (matched by
 // subject) and the private key that pairs with it. It fails when the key is
 // not there, which is the case for fabric-ca issued material: that must be
 // renewed with fabric-ca-client reenroll.
-func ResolveCA(caDir string, leaf *x509.Certificate) (*x509.Certificate, crypto.Signer, error) {
+func ResolveCA(caDir string, leaf *x509.Certificate) (*CA, error) {
 	if fi, err := os.Stat(caDir); err != nil || !fi.IsDir() {
-		return nil, nil, reissueErrorf("CA directory not found: %s", caDir)
+		return nil, reissueErrorf("CA directory not found: %s", caDir)
 	}
 	pems, err := filepath.Glob(filepath.Join(caDir, "*.pem"))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	sort.Strings(pems)
 	var ca *x509.Certificate
 	for _, p := range pems {
-		c, err := loadCert(p)
-		if err != nil {
-			return nil, nil, err
+		c, lerr := loadCert(p)
+		if lerr != nil {
+			return nil, lerr
 		}
 		if bytes.Equal(c.RawSubject, leaf.RawIssuer) {
 			ca = c
@@ -264,15 +270,15 @@ func ResolveCA(caDir string, leaf *x509.Certificate) (*x509.Certificate, crypto.
 		}
 	}
 	if ca == nil {
-		return nil, nil, reissueErrorf("no CA certificate in %s matches issuer %s", caDir, leaf.Issuer)
+		return nil, reissueErrorf("no CA certificate in %s matches issuer %s", caDir, leaf.Issuer)
 	}
 	caPub, err := publicKeyDER(ca.PublicKey)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	keys, err := filepath.Glob(filepath.Join(caDir, "*_sk"))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
@@ -282,10 +288,10 @@ func ResolveCA(caDir string, leaf *x509.Certificate) (*x509.Certificate, crypto.
 		}
 		pub, err := publicKeyDER(key.Public())
 		if err == nil && bytes.Equal(pub, caPub) {
-			return ca, key, nil
+			return &CA{Cert: ca, Key: key}, nil
 		}
 	}
-	return nil, nil, reissueErrorf("no CA private key (*_sk) in %s pairs with the CA certificate - "+
+	return nil, reissueErrorf("no CA private key (*_sk) in %s pairs with the CA certificate - "+
 		"the CA key is not on this filesystem (fabric-ca material must use fabric-ca-client reenroll)", caDir)
 }
 

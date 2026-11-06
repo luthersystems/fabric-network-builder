@@ -306,7 +306,7 @@ func TestReissuePreservesExtensionsAndCriticality(t *testing.T) {
 		return s
 	}
 	assert.Equal(t, set(old), set(n))
-	assert.True(t, n.KeyUsage != 0)
+	assert.NotEqual(t, x509.KeyUsage(0), n.KeyUsage)
 }
 
 func TestReissueKeepsTLSSANs(t *testing.T) {

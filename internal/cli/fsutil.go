@@ -74,7 +74,9 @@ func (o *owner) chownAll(root string, paths ...string) error {
 			if err != nil {
 				return err
 			}
-			return os.Lchown(q, o.uid, o.gid)
+			// Lchown does not follow a symlink, so a link in the tree cannot
+			// send the change outside it.
+			return os.Lchown(q, o.uid, o.gid) //nolint:gosec // see above
 		})
 		if err != nil {
 			return err
@@ -142,23 +144,26 @@ func replacePrivateKey(dir, domain string) error {
 }
 
 // writeArchive writes the named paths under dir to a tar.xz at dest.
-func writeArchive(dir, dest string, names []string) (err error) {
+func writeArchive(dir, dest string, names []string) error {
 	f, err := os.Create(dest) //nolint:gosec // operator-supplied path
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-	}()
-	xw, err := xz.NewWriter(f)
+	if err = writeTarXZ(f, dir, names); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+func writeTarXZ(w io.Writer, dir string, names []string) error {
+	xw, err := xz.NewWriter(w)
 	if err != nil {
 		return err
 	}
 	tw := tar.NewWriter(xw)
 	for _, name := range names {
-		err := filepath.WalkDir(filepath.Join(dir, name), func(p string, d fs.DirEntry, err error) error {
+		err = filepath.WalkDir(filepath.Join(dir, name), func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
@@ -184,7 +189,7 @@ func writeArchive(dir, dest string, names []string) (err error) {
 			if d.IsDir() {
 				hdr.Name += "/"
 			}
-			if err := tw.WriteHeader(hdr); err != nil {
+			if err = tw.WriteHeader(hdr); err != nil {
 				return err
 			}
 			if !info.Mode().IsRegular() {
@@ -202,7 +207,7 @@ func writeArchive(dir, dest string, names []string) (err error) {
 			return err
 		}
 	}
-	if err := tw.Close(); err != nil {
+	if err = tw.Close(); err != nil {
 		return err
 	}
 	return xw.Close()

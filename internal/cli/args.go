@@ -33,13 +33,13 @@ const (
 )
 
 type option struct {
-	names []string // "--long" and "-s" forms
-	kind  kind
 	dest  string
-	// value is what a bool option stores.
-	value bool
 	help  string
 	meta  string
+	names []string // "--long" and "-s" forms
+	kind  kind
+	// value is what a bool option stores.
+	value bool
 }
 
 type positional struct {
@@ -152,16 +152,26 @@ func lookup(cmd *command, opts []*option, name string) (*option, error) {
 
 func isOption(tok string) bool { return len(tok) > 1 && strings.HasPrefix(tok, "-") }
 
-// parseOptions reads the options and positionals of one parser level from
-// args. With stopAtPositional it stops at the first positional (the
-// command name) and returns the rest.
-func parseOptions(cmd *command, opts []*option, args []string, v *values, stopAtPositional bool) (pos, rest []string, err error) {
+// level is one parser level: the global options, or one command's.
+type level struct {
+	cmd  *command
+	opts []*option
+	// stopAtPositional stops at the first positional (the command name).
+	stopAtPositional bool
+}
+
+// readOptions reads the options of one parser level from args into v and
+// returns the positionals. With stopAtPositional, the positionals are the
+// first one and everything after it.
+func (v *values) readOptions(l level, args []string) ([]string, error) {
+	cmd, opts := l.cmd, l.opts
+	var pos []string
 	onlyPositionals := false
 	for i := 0; i < len(args); i++ {
 		tok := args[i]
 		if onlyPositionals || !isOption(tok) {
-			if stopAtPositional {
-				return pos, args[i:], nil
+			if l.stopAtPositional {
+				return args[i:], nil
 			}
 			pos = append(pos, tok)
 			continue
@@ -171,7 +181,7 @@ func parseOptions(cmd *command, opts []*option, args []string, v *values, stopAt
 			continue
 		}
 		if tok == "-h" || tok == "--help" {
-			return nil, nil, errHelp{cmd: cmd}
+			return nil, errHelp{cmd: cmd}
 		}
 		name, inline, hasInline := tok, "", false
 		if strings.HasPrefix(tok, "--") {
@@ -184,12 +194,12 @@ func parseOptions(cmd *command, opts []*option, args []string, v *values, stopAt
 		}
 		o, err := lookup(cmd, opts, name)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		display := o.names[0]
 		if o.kind == kindBool {
 			if hasInline {
-				return nil, nil, usagef(cmd, "argument %s: ignored explicit argument %q", display, inline)
+				return nil, usagef(cmd, "argument %s: ignored explicit argument %q", display, inline)
 			}
 			v.bools[o.dest] = o.value
 			continue
@@ -209,17 +219,19 @@ func parseOptions(cmd *command, opts []*option, args []string, v *values, stopAt
 		}
 		if len(vals) == 0 {
 			if o.kind == kindList {
-				return nil, nil, usagef(cmd, "argument %s: expected at least one argument", display)
+				return nil, usagef(cmd, "argument %s: expected at least one argument", display)
 			}
-			return nil, nil, usagef(cmd, "argument %s: expected one argument", display)
+			return nil, usagef(cmd, "argument %s: expected one argument", display)
 		}
 		switch o.kind {
+		case kindBool:
+			// Handled above: a bool option takes no value.
 		case kindString:
 			v.strings[o.dest] = vals[0]
 		case kindInt:
 			n, err := strconv.Atoi(vals[0])
 			if err != nil {
-				return nil, nil, usagef(cmd, "argument %s: invalid int value: %q", display, vals[0])
+				return nil, usagef(cmd, "argument %s: invalid int value: %q", display, vals[0])
 			}
 			v.ints[o.dest] = n
 		case kindList:
@@ -229,18 +241,26 @@ func parseOptions(cmd *command, opts []*option, args []string, v *values, stopAt
 			v.lists[o.dest] = append(v.lists[o.dest], vals[0])
 		}
 	}
-	return pos, nil, nil
+	return pos, nil
 }
 
-// parse returns the command, its positionals and the option values.
-func parse(globals []*option, commands []*command, args []string) (*command, map[string]string, *values, error) {
+// invocation is a parsed command line: the command, its positionals by
+// dest, and the option values.
+type invocation struct {
+	cmd *command
+	pos map[string]string
+	v   *values
+}
+
+// parse parses a command line: global options, the command, its options.
+func parse(globals []*option, commands []*command, args []string) (*invocation, error) {
 	v := newValues()
-	_, rest, err := parseOptions(nil, globals, args, v, true)
+	rest, err := v.readOptions(level{opts: globals, stopAtPositional: true}, args)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	if len(rest) == 0 {
-		return nil, nil, nil, usagef(nil, "the following arguments are required: command")
+		return nil, usagef(nil, "the following arguments are required: command")
 	}
 	var cmd *command
 	var names []string
@@ -251,27 +271,27 @@ func parse(globals []*option, commands []*command, args []string) (*command, map
 		}
 	}
 	if cmd == nil {
-		return nil, nil, nil, usagef(nil, "argument command: invalid choice: %q (choose from %s)", rest[0], strings.Join(names, ", "))
+		return nil, usagef(nil, "argument command: invalid choice: %q (choose from %s)", rest[0], strings.Join(names, ", "))
 	}
-	pos, _, err := parseOptions(cmd, cmd.options, rest[1:], v, false)
+	pos, err := v.readOptions(level{cmd: cmd, opts: cmd.options}, rest[1:])
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	if len(pos) < len(cmd.positionals) {
 		var missing []string
 		for _, p := range cmd.positionals[len(pos):] {
 			missing = append(missing, p.dest)
 		}
-		return nil, nil, nil, usagef(cmd, "the following arguments are required: %s", strings.Join(missing, ", "))
+		return nil, usagef(cmd, "the following arguments are required: %s", strings.Join(missing, ", "))
 	}
 	if len(pos) > len(cmd.positionals) {
-		return nil, nil, nil, usagef(cmd, "unrecognized arguments: %s", strings.Join(pos[len(cmd.positionals):], " "))
+		return nil, usagef(cmd, "unrecognized arguments: %s", strings.Join(pos[len(cmd.positionals):], " "))
 	}
 	named := map[string]string{}
 	for i, p := range cmd.positionals {
 		named[p.dest] = pos[i]
 	}
-	return cmd, named, v, nil
+	return &invocation{cmd: cmd, pos: named, v: v}, nil
 }
 
 func optionUsage(o *option) string {

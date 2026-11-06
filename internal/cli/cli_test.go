@@ -20,7 +20,7 @@ import (
 func runCLI(t *testing.T, stdin string, args ...string) (int, string, string) {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	code := Run(context.Background(), args, strings.NewReader(stdin), &out, &errOut)
+	code := Run(context.Background(), args, Streams{In: strings.NewReader(stdin), Out: &out, Err: &errOut})
 	return code, out.String(), errOut.String()
 }
 

@@ -22,6 +22,7 @@ import (
 
 	"github.com/compose-spec/compose-go/v2/cli"
 	"github.com/compose-spec/compose-go/v2/types"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/flags"
 	"github.com/docker/compose/v2/pkg/api"
@@ -44,16 +45,28 @@ type Project struct {
 	out       io.Writer
 }
 
-// Load loads files (relative to dir) as project name, with env added to
-// the process environment and the .env file for interpolation. env wins
-// over both, as the variables byfn.sh set on the docker-compose command
-// line did.
-func Load(ctx context.Context, dir, name string, files []string, env map[string]string, out io.Writer) (*Project, error) {
+// Options say which compose project to load.
+type Options struct {
+	// Env is added to the process environment and the .env file for
+	// interpolation, and wins over both, as the variables byfn.sh set on
+	// the docker-compose command line did.
+	Env map[string]string
+	// Out receives the progress of compose.
+	Out io.Writer
+	// Dir is the project directory; Files are relative to it.
+	Dir   string
+	Name  string
+	Files []string
+}
+
+// Load loads the compose project that o names.
+func Load(ctx context.Context, o Options) (*Project, error) {
+	dir, name, files, env, out := o.Dir, o.Name, o.Files, o.Env, o.Out
 	dockerCli, err := command.NewDockerCli(command.WithOutputStream(out), command.WithErrorStream(out))
 	if err != nil {
 		return nil, err
 	}
-	if err := dockerCli.Initialize(flags.NewClientOptions()); err != nil {
+	if err = dockerCli.Initialize(flags.NewClientOptions()); err != nil {
 		return nil, err
 	}
 	var paths []string
@@ -144,7 +157,7 @@ func (p *Project) selfContainer(ctx context.Context) (string, error) {
 		return "", err
 	}
 	c, err := p.client().ContainerInspect(ctx, host)
-	if client.IsErrNotFound(err) {
+	if cerrdefs.IsNotFound(err) {
 		// A container with another host name, or another daemon.
 		return "", nil
 	}
@@ -154,28 +167,38 @@ func (p *Project) selfContainer(ctx context.Context) (string, error) {
 	return c.ID, nil
 }
 
-// Resolver gives the builder a route to the nodes. The nodes' admin ports
+// A Route takes the builder to the nodes of the network.
+type Route struct {
+	// Resolve gives the address to dial for a node's host name and port.
+	Resolve func(host string, port int) string
+	leave   func()
+}
+
+// Close leaves the network, if Route joined it, so `down` can remove it.
+func (r *Route) Close() { r.leave() }
+
+// Route gives the builder a route to the nodes. The nodes' admin ports
 // (the orderers' 7053) are not published, so the builder dials each node's
-// IP on the network. In a container, the builder first joins the network;
-// the returned function leaves it, so `down` can remove the network.
-func (p *Project) Resolver(ctx context.Context) (func(host string, port int) string, func(), error) {
+// IP on the network. In a container, the builder first joins the network,
+// until Close.
+func (p *Project) Route(ctx context.Context) (*Route, error) {
 	netName, err := p.NetworkName()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	leave := func() {}
 	self, err := p.selfContainer(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if self != "" {
-		c, err := p.client().ContainerInspect(ctx, self)
-		if err != nil {
-			return nil, nil, err
+		c, ierr := p.client().ContainerInspect(ctx, self)
+		if ierr != nil {
+			return nil, ierr
 		}
 		if _, ok := c.NetworkSettings.Networks[netName]; !ok {
-			if err := p.client().NetworkConnect(ctx, netName, self, &network.EndpointSettings{}); err != nil {
-				return nil, nil, fmt.Errorf("join network %s: %w", netName, err)
+			if err = p.client().NetworkConnect(ctx, netName, self, &network.EndpointSettings{}); err != nil {
+				return nil, fmt.Errorf("join network %s: %w", netName, err)
 			}
 			leave = func() {
 				// Use a fresh context: the caller's may be done.
@@ -203,7 +226,7 @@ func (p *Project) Resolver(ctx context.Context) (func(host string, port int) str
 		}
 		return fmt.Sprintf("%s:%d", ip, port)
 	}
-	return resolve, leave, nil
+	return &Route{Resolve: resolve, leave: leave}, nil
 }
 
 // devPeer matches the containers and images the peers create to run Go
