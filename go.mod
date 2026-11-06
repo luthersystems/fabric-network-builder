@@ -6,7 +6,7 @@ require (
 	github.com/Knetic/govaluate v3.0.0+incompatible
 	github.com/compose-spec/compose-go/v2 v2.16.2
 	github.com/containerd/errdefs v1.0.0
-	github.com/docker/cli v29.9.2+incompatible
+	github.com/docker/cli v29.9.3+incompatible
 	github.com/docker/compose/v5 v5.7.0
 	github.com/hyperledger-labs/SmartBFT v0.0.0-20250503203013-eb005eef8866
 	github.com/hyperledger/fabric-admin-sdk v0.2.1
