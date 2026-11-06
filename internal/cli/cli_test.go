@@ -242,3 +242,28 @@ func TestSystemChannelNetworkDetection(t *testing.T) {
 	touch("channel-artifacts/luther.block")
 	assert.False(t, e.systemChannelNetwork(), "a new network has all files")
 }
+
+// The CCaaS services read their package ID from CCID_<NAME>. The builder
+// takes it from the chaincodes/<name>-<version>.id files that generatecc
+// writes, so a consumer needs no scripts/env.sh or .env file.
+func TestChaincodeIDsFromIDFiles(t *testing.T) {
+	dir := t.TempDir()
+	cc := filepath.Join(dir, "chaincodes")
+	require.NoError(t, os.MkdirAll(cc, 0o755))
+	write := func(name, body string) {
+		require.NoError(t, os.WriteFile(filepath.Join(cc, name), []byte(body), 0o600))
+	}
+	write("a-2.1.0-SNAPSHOT.id", "a-2.1.0-SNAPSHOT:ff8e\n")
+	write("my-cc-1.0.id", "my-cc-1.0:1234\n")
+	write("b-1.0.tar.gz", "not an id")
+	ids, err := chaincodeIDs(dir)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"CCID_A":  "a-2.1.0-SNAPSHOT:ff8e",
+		"CCID_MY": "my-cc-1.0:1234",
+	}, ids)
+
+	none, err := chaincodeIDs(t.TempDir())
+	require.NoError(t, err)
+	assert.Empty(t, none)
+}

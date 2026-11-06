@@ -307,7 +307,7 @@ func projectName() string {
 }
 
 func (e *env) loadProject(ccVersion string) (*compose.Project, error) {
-	envVars, err := composeEnv(e.channel, ccVersion)
+	envVars, err := composeEnv(e.dir, e.channel, ccVersion)
 	if err != nil {
 		return nil, err
 	}
