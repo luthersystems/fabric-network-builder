@@ -32,8 +32,7 @@ static-checks:
 # host's) into the local daemon as ${DOCKER_IMAGE}:latest.
 .PHONY: docker-build
 docker-build:
-	ref=$$(KO_DOCKER_REPO=ko.local ${KO} build --bare --platform=${KO_PLATFORM} ./cmd/fabric-network-builder) && \
-		${DOCKER} tag "$$ref" ${DOCKER_IMAGE}:latest
+	KO_DOCKER_REPO=${DOCKER_IMAGE} ${KO} build --local --bare --platform=${KO_PLATFORM} ./cmd/fabric-network-builder
 
 # docker-push publishes the amd64 and arm64 images and their manifest list to
 # Docker Hub as ${BUILD_VERSION} and latest. Log in to Docker Hub first.
