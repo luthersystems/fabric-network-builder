@@ -115,7 +115,11 @@ done
 # subject, so the MSP identities do not change.
 peer_tls=crypto-config/peerOrganizations/org1.luther.systems/peers/peer0.org1.luther.systems/tls/server.crt
 before=$(openssl x509 -noout -serial -in "${work}/${peer_tls}")
-fnb cert_expiries | grep -q "${peer_tls}" || { echo "cert_expiries does not list ${peer_tls}" >&2; exit 1; }
+# Read the whole output first: with pipefail, `fnb ... | grep -q` fails when
+# grep exits at its match before the builder has written the rest (broken
+# pipe), which made this check fail at random.
+expiries=$(fnb cert_expiries)
+grep -q "${peer_tls}" <<<"${expiries}" || { echo "cert_expiries does not list ${peer_tls}" >&2; exit 1; }
 fnb reissue --all --days 30
 after=$(openssl x509 -noout -serial -in "${work}/${peer_tls}")
 [[ "${before}" != "${after}" ]] || { echo "reissue did not replace ${peer_tls}" >&2; exit 1; }
