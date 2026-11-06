@@ -56,7 +56,7 @@ list every option.
 |---|---|
 | `generate` | Writes the compose files, `configtx.yaml` and `crypto-config.yaml`, then the crypto material and the channel genesis block. `--template` writes only the files; `--no-template` makes only the material from the files you have. `--archive FILE` writes a `.tar.xz` and leaves the directory alone. |
 | `extend` | Adds the crypto material for new orgs or peers in `crypto-config.yaml` and keeps the rest. |
-| `up` | Starts the network, joins each orderer and each peer to the channel. |
+| `up` | Starts the network and makes the channel. A network from this version: each orderer joins with `channel-artifacts/<channel>.block`, then each peer joins. A network from v0.0.10 or earlier (orderers on the system channel): the builder sends the signed `channel.tx`, the peers join, and each org sends its `<MSP>anchors.tx`. A channel or a member that exists is kept, so `up` is safe to run again. |
 | `install NAME VERSION "VARIANTS" /chaincodes/PKG.tar.gz` | Installs each variant's package on every peer, approves it for every org and commits it on the channel, at the next sequence. |
 | `invoke [--init] [--peer peerJ.orgI]... NAME '{"Args":[...]}'` | Submits a chaincode transaction, endorsed by the first peer of each org (or the `--peer` list), and waits until it is committed. `--init` calls the chaincode's Init, for `install --init-required`. Prints the response. |
 | `generatecc NAME VERSION "VARIANTS" /chaincodes/PKG.tar.gz` | Builds the chaincode packages and their package IDs (`chaincodes/<variant>-<version>.id`). |
@@ -74,9 +74,20 @@ fabric-network-builder install mycc v1.0 mycc /chaincodes/mycc-v1.0.tar.gz
 fabric-network-builder down
 ```
 
-The network has no orderer system channel. `generate` writes the channel's
-genesis block, `channel-artifacts/<channel>.block`, with the anchor peers in
-it. Only the `etcdraft` orderer type is generated.
+The network that `up` starts has no orderer system channel. `generate`
+writes the channel's genesis block, `channel-artifacts/<channel>.block`, with
+the anchor peers in it. Only the `etcdraft` orderer type is generated.
+
+`generate` also writes the files that the mars Kubernetes roles use to start
+a Fabric 2.5 network the v0.0.10 way: `channel-artifacts/genesis.block` (the
+system channel), `channel.tx` and `<MSP>anchors.tx`.
+
+`generate` still writes the v0.0.10 `scripts/*.sh` into the project, for
+callers that run them in the `cli` container. The builder does not use them.
+They go away in a later release
+([#35](https://github.com/luthersystems/fabric-network-builder/issues/35));
+use the builder's commands (`up`, `install`, `invoke`, `ansible-vars`)
+instead.
 
 ### Fabric release
 
