@@ -2,10 +2,13 @@ package cli
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/ulikunitz/xz"
+	"gopkg.in/yaml.v3"
 )
 
 func runCLI(t *testing.T, stdin string, args ...string) (int, string, string) {
@@ -278,4 +282,71 @@ func TestInvokeArgs(t *testing.T) {
 	assert.Contains(t, errOut, "want peerJ.orgI")
 	code, _, errOut = runCLI(t, "", "--force", "invoke", "a")
 	assert.Equal(t, 2, code, errOut)
+}
+
+// ansible-vars writes the file that the mars sandbox template's
+// fabric/fnb-gen.sh wrote with zip and base64: each value is a base64 zip
+// (or, for collections.json, the base64 file) that the mars Kubernetes
+// roles unpack.
+func TestAnsibleVars(t *testing.T) {
+	t.Chdir(t.TempDir())
+	code, _, errOut := runCLI(t, "", "-f", "generate", "--org-count", "1", "--peer-count", "1")
+	require.Equal(t, 0, code, errOut)
+	code, _, errOut = runCLI(t, "", "ansible-vars", "--output", "fabric.yaml")
+	require.Equal(t, 0, code, errOut)
+
+	b, err := os.ReadFile("fabric.yaml")
+	require.NoError(t, err)
+	vars := map[string]string{}
+	require.NoError(t, yaml.Unmarshal(b, &vars))
+	assert.Len(t, vars, 3)
+
+	coll, err := base64.StdEncoding.DecodeString(vars["k8s_fabric_collections"])
+	require.NoError(t, err)
+	want, err := os.ReadFile("collections.json")
+	require.NoError(t, err)
+	assert.Equal(t, want, coll)
+
+	for key, dir := range map[string]string{
+		"k8s_fabric_channel_artifacts": "channel-artifacts",
+		"k8s_fabric_crypto_config":     "crypto-config",
+	} {
+		z, derr := base64.StdEncoding.DecodeString(vars[key])
+		require.NoError(t, derr, key)
+		zr, zerr := zip.NewReader(bytes.NewReader(z), int64(len(z)))
+		require.NoError(t, zerr, key)
+		got := map[string]string{}
+		for _, f := range zr.File {
+			if f.FileInfo().IsDir() {
+				continue
+			}
+			rc, oerr := f.Open()
+			require.NoError(t, oerr)
+			data, rerr := io.ReadAll(rc)
+			require.NoError(t, rerr)
+			_ = rc.Close()
+			got[f.Name] = string(data)
+		}
+		files := map[string]string{}
+		require.NoError(t, filepath.WalkDir(dir, func(p string, d fs.DirEntry, werr error) error {
+			if werr != nil || d.IsDir() {
+				return werr
+			}
+			data, rerr := os.ReadFile(p)
+			files[filepath.ToSlash(p)] = string(data)
+			return rerr
+		}))
+		assert.Equal(t, files, got, key)
+		assert.NotEmpty(t, got, key)
+	}
+	z, err := base64.StdEncoding.DecodeString(vars["k8s_fabric_channel_artifacts"])
+	require.NoError(t, err)
+	zr, err := zip.NewReader(bytes.NewReader(z), int64(len(z)))
+	require.NoError(t, err)
+	var names []string
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	assert.Contains(t, names, "channel-artifacts/", "directory entries, as zip -r writes")
+	assert.Contains(t, names, "channel-artifacts/genesis.block")
 }
