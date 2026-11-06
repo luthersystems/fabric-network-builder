@@ -56,6 +56,10 @@ func TestGenerateTemplateThenAssets(t *testing.T) {
 	code, _, errOut = runCLI(t, "", "--force", "generate", "--domain", "luther.systems", "--no-template")
 	require.Equal(t, 0, code, errOut)
 	assert.FileExists(t, "channel-artifacts/luther.block")
+	// The v0.0.10 files that fnb-gen.sh ships to mars.
+	for _, f := range []string{"genesis.block", "channel.tx", "Org1MSPanchors.tx", "Org2MSPanchors.tx"} {
+		assert.FileExists(t, "channel-artifacts/"+f)
+	}
 	e2e, err := os.ReadFile("docker-compose-e2e.yaml")
 	require.NoError(t, err)
 	assert.NotContains(t, string(e2e), "_PRIVATE_KEY")
