@@ -9,28 +9,38 @@ on:
   pull_request:
     branches:
       - "**"
+  # A merge queue tests the merged commit and waits for each required check.
+  merge_group:
 
 jobs:
   test:
+    name: Go tests and lint
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-go@v6
         with:
-          python-version: "3.11"
-      - name: Install deps
-        run: pip install -r requirements.txt
+          # go.mod's toolchain line is the one statement of the Go version.
+          go-version-file: go.mod
       - name: Run unit tests
-        run: make test
-        timeout-minutes: 5
+        run: go test -race ./...
+        timeout-minutes: 15
+      # golangci-lint runs in the shared Quality workflow (quality.yml).
+      # `golangci-lint run` accepts an unknown key in .golangci.yml; only the
+      # schema check rejects it, so it stays here. Keep the version equal to
+      # the shared workflow's pin.
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          install-only: true
+      - name: golangci-lint config schema
+        run: golangci-lint config verify
 
   build:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
-        with:
-          lfs: true
       - name: Build
         run: make
         timeout-minutes: 10
