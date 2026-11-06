@@ -14,8 +14,19 @@ services:
     environment:
       - ORDERER_GENERAL_LOGLEVEL=INFO
       - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
-      - ORDERER_GENERAL_GENESISMETHOD=file
-      - ORDERER_GENERAL_GENESISFILE=/var/hyperledger/orderer/orderer.genesis.block
+      # No system channel: the orderer starts with no channels and joins the
+      # application channel through the channel participation API (the admin
+      # endpoint below), which create_channel.sh calls with osnadmin. Fabric 3
+      # removed the system channel; Fabric 2.3 and later support this flow.
+      - ORDERER_GENERAL_BOOTSTRAPMETHOD=none
+      - ORDERER_CHANNELPARTICIPATION_ENABLED=true
+      - ORDERER_ADMIN_LISTENADDRESS=0.0.0.0:7053
+      - ORDERER_ADMIN_TLS_ENABLED=true
+      - ORDERER_ADMIN_TLS_PRIVATEKEY=/var/hyperledger/orderer/tls/server.key
+      - ORDERER_ADMIN_TLS_CERTIFICATE=/var/hyperledger/orderer/tls/server.crt
+      - ORDERER_ADMIN_TLS_ROOTCAS=[/var/hyperledger/orderer/tls/ca.crt]
+      - ORDERER_ADMIN_TLS_CLIENTAUTHREQUIRED=true
+      - ORDERER_ADMIN_TLS_CLIENTROOTCAS=[/var/hyperledger/orderer/tls/ca.crt]
       - ORDERER_GENERAL_LOCALMSPID=OrdererMSP
       - ORDERER_GENERAL_LOCALMSPDIR=/var/hyperledger/orderer/msp
       - ORDERER_GENERAL_TLS_ENABLED=true
@@ -41,7 +52,6 @@ services:
     working_dir: /opt/gopath/src/github.com/hyperledger/fabric
     command: orderer
     volumes:
-      - ../channel-artifacts/genesis.block:/var/hyperledger/orderer/orderer.genesis.block
       - ../crypto-config/ordererOrganizations/{{DOMAIN_NAME}}/orderers/orderer{{i}}.{{DOMAIN_NAME}}/msp:/var/hyperledger/orderer/msp
       - ../crypto-config/ordererOrganizations/{{DOMAIN_NAME}}/orderers/orderer{{i}}.{{DOMAIN_NAME}}/tls/:/var/hyperledger/orderer/tls
       - orderer{{i}}.{{DOMAIN_NAME}}:/var/hyperledger/production/orderer

@@ -73,50 +73,73 @@ setGlobals() {
 	env | grep CORE >&2
 }
 
-updateAnchorPeers() {
-	PEER=$1
-	ORG=$2
-	setGlobals $PEER $ORG
+# createChannel joins every orderer to the application channel with the
+# channel's genesis block, through the orderer's channel participation API.
+# There is no system channel and no channel creation transaction: Fabric 3
+# removed both, and Fabric 2.3 and later support this flow. The anchor peers
+# are in the genesis block (configtx.yaml AnchorPeers), so no anchor peer
+# update follows.
+createChannel() {
+    CHANNEL_NAME=$1
+    DELAY=3
+    ORDERER_ADMIN_TLS="/crypto-config/ordererOrganizations/${DOMAIN_NAME}/users/Admin@${DOMAIN_NAME}/tls"
 
-	if [ -z "$CORE_PEER_TLS_ENABLED" -o "$CORE_PEER_TLS_ENABLED" = "false" ]; then
-		set -x
-		peer channel update -o orderer0."$DOMAIN_NAME":7050 -c $CHANNEL_NAME -f /channel-artifacts/${CORE_PEER_LOCALMSPID}anchors.tx >&log.txt
-		res=$?
-		set +x
-	else
-		set -x
-		peer channel update -o orderer0."$DOMAIN_NAME":7050 -c $CHANNEL_NAME -f /channel-artifacts/${CORE_PEER_LOCALMSPID}anchors.tx --tls $CORE_PEER_TLS_ENABLED --cafile $ORDERER_CA --clientauth --certfile $CORE_PEER_TLS_CERT_FILE --keyfile $CORE_PEER_TLS_KEY_FILE >&log.txt
-		res=$?
-		set +x
-	fi
-	cat log.txt
-	verifyResult $res "Anchor peer update failed"
-	echo "===================== Anchor peers for org \"$CORE_PEER_LOCALMSPID\" on \"$CHANNEL_NAME\" is updated successfully ===================== "
-	sleep $DELAY
-	echo
+    if [ ${#ORDERER_INDICES[@]} -eq 0 ]; then
+        verifyResult 1 "ORDERER_INDICES is empty in scripts/variables.sh: no orderer to join"
+    fi
+    sleep $DELAY
+    for i in "${ORDERER_INDICES[@]}"
+    do
+        joinOrdererWithRetry "$i" "$CHANNEL_NAME" "$DELAY" 1 5
+    done
+    echo "===================== Channel \"$CHANNEL_NAME\" is created successfully ===================== "
+    echo
 }
 
-createChannel() {
-	CHANNEL_NAME=$1
-	DELAY=3
-	setGlobals 0 1
+## The orderer admin endpoint may not listen yet just after the container
+## starts, so the join is retried like the peer join below.
+joinOrdererWithRetry() {
+    ORDERER=$1
+    CHANNEL_NAME=$2
+    DELAY=$3
+    COUNTER=$4
+    MAX_RETRY=$5
 
-	sleep $DELAY
-	if [ -z "$CORE_PEER_TLS_ENABLED" -o "$CORE_PEER_TLS_ENABLED" = "false" ]; then
-		set -x
-		peer channel create -o orderer0."$DOMAIN_NAME":7050 -c $CHANNEL_NAME -f /channel-artifacts/channel.tx >&log.txt
-		res=$?
-		set +x
-	else
-		set -x
-		peer channel create -o orderer0."$DOMAIN_NAME":7050 -c $CHANNEL_NAME -f /channel-artifacts/channel.tx --tls $CORE_PEER_TLS_ENABLED --cafile $ORDERER_CA --clientauth --certfile $CORE_PEER_TLS_CERT_FILE --keyfile $CORE_PEER_TLS_KEY_FILE >&log.txt
-		res=$?
-		set +x
-	fi
-	cat log.txt
-	verifyResult $res "Channel creation failed"
-	echo "===================== Channel \"$CHANNEL_NAME\" is created successfully ===================== "
-	echo
+    # A restarted network keeps the orderer's ledger volume: the orderer is
+    # already a member, and a second join fails with 405 on every retry.
+    if osnadmin channel list --channelID "$CHANNEL_NAME" \
+        -o "orderer${ORDERER}.${DOMAIN_NAME}:7053" \
+        --ca-file "$ORDERER_CA" \
+        --client-cert "${ORDERER_ADMIN_TLS}/client.crt" \
+        --client-key "${ORDERER_ADMIN_TLS}/client.key" 2>/dev/null | grep -q '"status": "active"'; then
+        echo "orderer${ORDERER} is already a member of $CHANNEL_NAME"
+        return 0
+    fi
+
+    set -x
+    osnadmin channel join --channelID "$CHANNEL_NAME" \
+        --config-block "/channel-artifacts/${CHANNEL_NAME}.block" \
+        -o "orderer${ORDERER}.${DOMAIN_NAME}:7053" \
+        --ca-file "$ORDERER_CA" \
+        --client-cert "${ORDERER_ADMIN_TLS}/client.crt" \
+        --client-key "${ORDERER_ADMIN_TLS}/client.key" >&log.txt
+    res=$?
+    set +x
+
+    cat log.txt
+    # osnadmin exits 0 on any HTTP reply, so a rejected join (400, 403, 405)
+    # looks like success; only 201 Created is one.
+    if [ $res -eq 0 ] && ! grep -q '^Status: 201' log.txt; then
+        res=1
+    fi
+    if [ $res -ne 0 -a $COUNTER -lt $MAX_RETRY ]; then
+        COUNTER=` expr $COUNTER + 1`
+        echo "orderer${ORDERER} failed to join the channel, Retry after $DELAY seconds"
+        sleep $DELAY
+        joinOrdererWithRetry "$ORDERER" "$CHANNEL_NAME" "$DELAY" $COUNTER $MAX_RETRY
+    else
+        verifyResult $res "After $MAX_RETRY attempts, orderer${ORDERER} has failed to join the channel"
+    fi
 }
 
 joinChannel() {
@@ -146,7 +169,7 @@ joinChannelWithRetry() {
 	setGlobals $PEER $ORG
 
 	set -x
-	peer channel join -b $CHANNEL_NAME.block >&log.txt
+	peer channel join -b "/channel-artifacts/${CHANNEL_NAME}.block" >&log.txt
 	res=$?
 	set +x
 

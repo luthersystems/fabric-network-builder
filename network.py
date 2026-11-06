@@ -588,7 +588,11 @@ class Network(object):
         parser_gen.add_argument('--execute-timeout', help='chaincode execute timeout',
                                 type=int,
                                 default=self.execute_timeout)
-        parser_gen.add_argument('--orderer-type', help='orderer cluster type (etcdraft or solo) ',
+        # Only etcdraft: the network has no system channel, and the channel
+        # participation API that replaces it does not support solo (Fabric 3
+        # removed solo outright).
+        parser_gen.add_argument('--orderer-type', help='orderer cluster type (etcdraft)',
+                                choices=['etcdraft'],
                                 default='etcdraft')
         parser_gen.add_argument('--orderer-count', help='number of orderer servers to generate config for',
                                 type=int,
