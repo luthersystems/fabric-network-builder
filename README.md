@@ -151,8 +151,9 @@ With none of these set, the network runs the same images as before.
 
 ### Published ports
 
-The orderer, peer, CA, CouchDB and chaincode services publish their ports
-on `127.0.0.1` only. The network uses test credentials and has no real
+The orderer, peer, CA and chaincode services publish their ports on
+`127.0.0.1` only (IPv4: use `127.0.0.1`, not a `localhost` that resolves to
+`::1`). The network uses test credentials and has no real
 authentication, so by default other machines on your network cannot reach
 it. Containers on the `byfn` network reach the nodes by name, not through
 these ports. The builder sets the address when it loads the compose files,
@@ -161,6 +162,8 @@ the file gives an address keeps it.
 
 Set `FNB_PUBLISH_ADDR` to publish on another address, for example
 `FNB_PUBLISH_ADDR=0.0.0.0` for every interface, as v0.1.1 and earlier did.
+The first `up` of a running network with this release recreates its
+containers once, because their ports change.
 
 ## Chaincode as a Service (CCaaS)
 
@@ -199,10 +202,17 @@ pass a variable only by name, so before this the chaincode got only the two
 that `docker-compose-ccaas.yaml` names. A value that the compose file sets
 wins.
 
+`CHAINCODE_VERSION` and `CCID_*` are not forwarded: they are the builder's
+own inputs, and `--cc-version` sets the image tag.
+
 The variables must be in the builder container's environment.
 `fabric-network-builder.sh` passes every `FNB_*`, `CHAINCODE_*`,
-`SUBSTRATE_*` and `OTEL_*` variable of your shell. With `docker run`, pass
-each one with `-e NAME`.
+`SUBSTRATE_*` and `OTEL_*` variable of your shell, so a substrate setting
+or hatch that you exported for something else (for example a
+`SUBSTRATE_ALLOW_*` for tests) reaches the chaincode too; unset it first.
+With `docker run`, pass each one with `-e NAME`. A changed value recreates
+the chaincode containers at the next `up`, and a variable that is no longer
+set is gone from them after it.
 
 ## Renewing certificates
 

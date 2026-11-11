@@ -14,7 +14,8 @@ SOCK_GID=$(docker run --rm --entrypoint stat -v "$SOCK:$SOCK" "$DOCKER_IMAGE" -c
 
 # Pass the builder's settings (FNB_*) and the variables it forwards to the
 # chaincode containers (CHAINCODE_*, SUBSTRATE_*, OTEL_*) by name, so their
-# values never show on the command line.
+# values never show on the command line. (The ${a[@]+...} form keeps an
+# empty array from failing set -u on the bash 3.2 of macOS.)
 ENV_ARGS=()
 while read -r name; do
     case "$name" in
@@ -25,7 +26,7 @@ done < <(compgen -e)
 
 docker run --rm -it \
     -u "$(id -u):$(id -g)" --group-add "$SOCK_GID" \
-    "${ENV_ARGS[@]}" \
+    ${ENV_ARGS[@]+"${ENV_ARGS[@]}"} \
     -v "$SOCK:$SOCK" \
     -v "$PROJECT_PATH:$PROJECT_PATH" \
     -w "$PROJECT_PATH" \

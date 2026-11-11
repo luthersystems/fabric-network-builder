@@ -111,7 +111,7 @@ func Load(ctx context.Context, o Options) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	forwardEnv(project, o.ForwardEnv, os.Environ())
+	forwardEnv(project, o.ForwardEnv, os.Environ(), env)
 	publishOn(project, o.PublishAddr)
 	// The labels the compose CLI sets: compose finds a project's containers
 	// by them.
@@ -336,9 +336,12 @@ func (p *Project) Close() error { return p.client().Close() }
 
 // forwardEnv adds to each named service the variables of environ whose names
 // start with one of ForwardEnvPrefixes, unless the service sets them. A name
-// the file lists without a value ("CHAINCODE_LOG_LEVEL:") is already
-// resolved from the environment, or nil when unset, so it is filled too.
-func forwardEnv(project *types.Project, services []string, environ []string) {
+// the file lists without a value ("CHAINCODE_LOG_LEVEL:") is resolved from
+// the environment, or nil when unset, so a nil one is filled too. The
+// builder's own interpolation variables (skip: CHAINCODE_VERSION, CCID_*)
+// are not forwarded: a CHAINCODE_VERSION left in the shell must not
+// disagree with the --cc-version the image tag came from.
+func forwardEnv(project *types.Project, services []string, environ []string, skip map[string]string) {
 	for _, name := range services {
 		s, ok := project.Services[name]
 		if !ok {
@@ -352,6 +355,9 @@ func forwardEnv(project *types.Project, services []string, environ []string) {
 			if !ok || !slices.ContainsFunc(ForwardEnvPrefixes, func(p string) bool { return strings.HasPrefix(k, p) }) {
 				continue
 			}
+			if _, builder := skip[k]; builder {
+				continue
+			}
 			if cur, set := s.Environment[k]; set && cur != nil {
 				continue
 			}
@@ -361,14 +367,15 @@ func forwardEnv(project *types.Project, services []string, environ []string) {
 	}
 }
 
-// publishOn binds each published port that has no host address to addr.
+// publishOn binds each port that has no host address to addr, also one with
+// no host port ("- 8080"), which Docker publishes on a random host port.
 func publishOn(project *types.Project, addr string) {
 	if addr == "" {
 		return
 	}
 	for name, s := range project.Services {
 		for i := range s.Ports {
-			if s.Ports[i].Published != "" && s.Ports[i].HostIP == "" {
+			if s.Ports[i].HostIP == "" {
 				s.Ports[i].HostIP = addr
 			}
 		}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -109,4 +110,52 @@ func TestLoadForwardEnvAndPublishAddr(t *testing.T) {
 	require.Len(t, peer, 2)
 	assert.Equal(t, "127.0.0.1", peer[0].HostIP)
 	assert.Equal(t, "10.1.2.3", peer[1].HostIP)
+}
+
+// forwardEnv fills a variable that the file names without a value and that
+// resolved to nil, keeps a value the file sets, and does not forward the
+// builder's own interpolation variables.
+func TestForwardEnv(t *testing.T) {
+	fromFile := "from-file"
+	project := &types.Project{Services: types.Services{
+		"cc": {Name: "cc", Environment: types.MappingWithEquals{
+			"CHAINCODE_LOG_LEVEL": nil,
+			"OTEL_SERVICE_NAME":   &fromFile,
+		}},
+		"other": {Name: "other"},
+	}}
+	forwardEnv(project, []string{"cc"}, []string{
+		"CHAINCODE_LOG_LEVEL=debug",
+		"OTEL_SERVICE_NAME=from-env",
+		"CHAINCODE_VERSION=2.200.0",
+		"SUBSTRATE_X=y",
+		"PATH=/bin",
+	}, map[string]string{"CHAINCODE_VERSION": "2.205.0"})
+	cc := project.Services["cc"].Environment
+	require.NotNil(t, cc["CHAINCODE_LOG_LEVEL"])
+	assert.Equal(t, "debug", *cc["CHAINCODE_LOG_LEVEL"])
+	assert.Equal(t, "from-file", *cc["OTEL_SERVICE_NAME"])
+	require.NotNil(t, cc["SUBSTRATE_X"])
+	assert.NotContains(t, cc, "CHAINCODE_VERSION")
+	assert.NotContains(t, cc, "PATH")
+	assert.Empty(t, project.Services["other"].Environment)
+}
+
+// publishOn binds a port with no host port too, and keeps an explicit
+// address.
+func TestPublishOn(t *testing.T) {
+	project := &types.Project{Services: types.Services{
+		"peer": {Name: "peer", Ports: []types.ServicePortConfig{
+			{Target: 7051, Published: "7051"},
+			{Target: 9443},
+			{Target: 7053, Published: "7053", HostIP: "10.1.2.3"},
+		}},
+	}}
+	publishOn(project, "127.0.0.1")
+	p := project.Services["peer"].Ports
+	assert.Equal(t, "127.0.0.1", p[0].HostIP)
+	assert.Equal(t, "127.0.0.1", p[1].HostIP)
+	assert.Equal(t, "10.1.2.3", p[2].HostIP)
+	publishOn(project, "")
+	assert.Equal(t, "127.0.0.1", project.Services["peer"].Ports[0].HostIP)
 }
