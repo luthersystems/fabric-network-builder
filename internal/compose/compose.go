@@ -51,9 +51,12 @@ type Options struct {
 	// Out receives the progress of compose.
 	Out io.Writer
 	// Dir is the project directory; Files are relative to it.
-	Dir   string
-	Name  string
-	Files []string
+	Dir  string
+	Name string
+	// PublishAddr is the host address that a published port binds to when
+	// the compose file gives none. Empty leaves the ports as the files say.
+	PublishAddr string
+	Files       []string
 	// ForwardEnv names the services (the chaincode containers) that get
 	// each variable of the process environment whose name starts with one
 	// of ForwardEnvPrefixes. A compose file can pass a variable only by
@@ -62,9 +65,6 @@ type Options struct {
 	// chaincode never saw the others it reads, such as OTEL_BSP_* for its
 	// span batches. A variable the compose file sets keeps that value.
 	ForwardEnv []string
-	// PublishAddr is the host address that a published port binds to when
-	// the compose file gives none. Empty leaves the ports as the files say.
-	PublishAddr string
 }
 
 // ForwardEnvPrefixes are the prefixes of the variables that Load passes to
