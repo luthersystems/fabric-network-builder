@@ -115,6 +115,28 @@ for a 3.x tag it stays on the image's own 2.5 tag. `FNB_TOOLSIMAGETAG` sets
 its tag. The builder does not use the `cli` service; it stays for your own
 `docker exec` commands.
 
+### Image registry
+
+The images come from Docker Hub's `hyperledger` namespace by default. To
+pull them from a mirror, such as an ECR pull-through cache of Docker Hub,
+set `FNB_IMAGENS` to the registry and path in front of each image name:
+
+```sh
+docker run -e FNB_IMAGENS=123456789012.dkr.ecr.us-east-1.amazonaws.com/docker-hub/hyperledger \
+  ... luthersystems/fabric-network-builder up
+```
+
+The peer, orderer, ccenv, tools, CA and CouchDB images all use it. The
+value has no tag and no trailing `/`; a registry port (`host:5000/ns`) is
+allowed. The peers pull `fabric-ccenv` themselves, so their Docker daemon
+must be able to pull from the mirror too.
+
+Fabric CA and CouchDB release apart from Fabric, so `FNB_IMAGETAG` does not
+move their tags. `FNB_CAIMAGETAG` sets the `fabric-ca` tag and
+`FNB_BASEIMAGETAG` the `fabric-couchdb` tag, for a mirror that holds other
+tags than the image's defaults. With none of these set, the builder writes
+the same compose environment as before.
+
 `tests/network-smoke.sh IMAGE TAG` generates a network, brings it up on that
 tag, checks that every node joined the channel and commits a chaincode
 definition. CI runs it on 2.5 and 3.1.

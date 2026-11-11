@@ -65,6 +65,13 @@ jobs:
         fabric:
           - 2.5.16
           - 3.1.4
+        include:
+          # The 3.1 leg pulls through a registry-qualified FNB_IMAGENS, so
+          # an image path with a registry host reaches every compose
+          # service (#45: acre pulls through an ECR pull-through cache).
+          # docker.io/hyperledger names the same images as the default.
+          - fabric: 3.1.4
+            smoke_opts: -e FNB_IMAGENS=docker.io/hyperledger
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -80,6 +87,8 @@ jobs:
         run: tests/fabric-oracle.sh "${{ matrix.fabric }}" luthersystems/fabric-network-builder:latest
         timeout-minutes: 10
       - name: Bring a network up
+        env:
+          FNB_SMOKE_DOCKER_OPTS: ${{ matrix.smoke_opts }}
         run: tests/network-smoke.sh luthersystems/fabric-network-builder:latest "${{ matrix.fabric }}"
         timeout-minutes: 15
 

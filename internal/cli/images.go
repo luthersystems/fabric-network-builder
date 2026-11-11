@@ -18,9 +18,16 @@ var (
 	ImageNS      = "hyperledger"
 )
 
-// imageTags are the tags the compose files read.
+// imageTags are the image namespace and tags the compose files read.
 type imageTags struct {
 	image, tools string
+	// ns is the registry and namespace in front of every Fabric image
+	// name, "hyperledger" (Docker Hub) by default.
+	ns string
+	// ca is the fabric-ca tag and base the fabric-couchdb tag. Fabric CA
+	// and CouchDB release apart from Fabric, so FNB_IMAGETAG does not
+	// move them.
+	ca, base string
 }
 
 // fabricVersionAtLeast25 reports whether a Fabric image tag is 2.5 or
@@ -44,8 +51,31 @@ func fabricVersionAtLeast25(tag string) bool {
 // and 3.x), and FNB_TOOLSIMAGETAG. The cli container runs fabric-tools,
 // which Fabric 3 no longer publishes, so the tools tag keeps a 2.x override
 // and otherwise falls back to the default 2.x tag.
+//
+// FNB_IMAGENS replaces the image namespace. A consumer that pulls Fabric
+// images through a mirror (an ECR pull-through cache of Docker Hub, as
+// luthersystems/acre does) cannot use the fixed "hyperledger" namespace:
+// Docker Hub rate limits and refuses pulls from a network without
+// internet access. The value is a namespace ("hyperledger") or a registry
+// and path ("123456789012.dkr.ecr.us-east-1.amazonaws.com/docker-hub/hyperledger").
+// FNB_CAIMAGETAG and FNB_BASEIMAGETAG override the fabric-ca and
+// fabric-couchdb tags, because a mirror can hold other tags than the
+// image's defaults. With none of them set, the output is the same as
+// before (#45).
 func resolveImageTags(getenv func(string) string) (imageTags, error) {
-	t := imageTags{image: ImageTag}
+	t := imageTags{image: ImageTag, ns: ImageNS, ca: CAImageTag, base: BaseImageTag}
+	if v := getenv("FNB_IMAGENS"); v != "" {
+		if err := checkImageNS(v); err != nil {
+			return t, err
+		}
+		t.ns = v
+	}
+	if v := getenv("FNB_CAIMAGETAG"); v != "" {
+		t.ca = v
+	}
+	if v := getenv("FNB_BASEIMAGETAG"); v != "" {
+		t.base = v
+	}
 	if v := getenv("FNB_IMAGETAG"); v != "" {
 		t.image = v
 	}
@@ -67,6 +97,42 @@ func resolveImageTags(getenv func(string) string) (imageTags, error) {
 	return t, nil
 }
 
+// checkImageNS refuses an FNB_IMAGENS value that cannot be the start of
+// an image reference. The compose files put "/fabric-peer:<tag>" after
+// it, so a trailing "/" gives "ns//fabric-peer" and a tag or digest in it
+// gives a reference with two tags. Docker reports those only when it
+// pulls, with an error that does not name FNB_IMAGENS.
+func checkImageNS(ns string) error {
+	switch {
+	case strings.ContainsAny(ns, " \t\n\r$@"):
+		return fmt.Errorf("FNB_IMAGENS %q has a space, a \"$\" or a \"@\"", ns)
+	case strings.HasPrefix(ns, "/") || strings.HasSuffix(ns, "/") || strings.Contains(ns, "//"):
+		return fmt.Errorf("FNB_IMAGENS %q has an empty path part: remove the extra \"/\"", ns)
+	}
+	// A ":" is allowed only in the registry host, for a port
+	// ("host:5000/ns", or "host:5000" alone). In the last path part it is
+	// a tag.
+	first, _, _ := strings.Cut(ns, "/")
+	last := ns[strings.LastIndex(ns, "/")+1:]
+	_, port, hasColon := strings.Cut(first, ":")
+	if strings.Contains(ns, "/") && strings.Contains(last, ":") || hasColon && !allDigits(port) {
+		return fmt.Errorf("FNB_IMAGENS %q has a tag: set the tag with FNB_IMAGETAG", ns)
+	}
+	return nil
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // composeEnv is the interpolation environment of the compose files.
 func composeEnv(dir, channel, ccVersion string) (map[string]string, error) {
 	t, err := resolveImageTags(os.Getenv)
@@ -79,11 +145,11 @@ func composeEnv(dir, channel, ccVersion string) (map[string]string, error) {
 	}
 	maps.Copy(env, map[string]string{
 		"CHANNEL_NAME":    channel,
-		"IMAGE_NS":        ImageNS,
-		"CA_IMAGE_TAG":    CAImageTag,
+		"IMAGE_NS":        t.ns,
+		"CA_IMAGE_TAG":    t.ca,
 		"IMAGE_TAG":       t.image,
 		"TOOLS_IMAGE_TAG": t.tools,
-		"BASE_IMAGE_TAG":  BaseImageTag,
+		"BASE_IMAGE_TAG":  t.base,
 		"TIMEOUT":         "10000",
 	})
 	// byfn.sh always set CHAINCODE_VERSION, empty without -V. Keep a value
