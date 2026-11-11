@@ -54,7 +54,20 @@ type Options struct {
 	Dir   string
 	Name  string
 	Files []string
+	// ForwardEnv names the services (the chaincode containers) that get
+	// each variable of the process environment whose name starts with one
+	// of ForwardEnvPrefixes. A compose file can pass a variable only by
+	// name, so docker-compose-ccaas.yaml passes a fixed list
+	// (CHAINCODE_OTLP_TRACER_ENDPOINT, CHAINCODE_LOG_LEVEL) and the
+	// chaincode never saw the others it reads, such as OTEL_BSP_* for its
+	// span batches. A variable the compose file sets keeps that value.
+	ForwardEnv []string
 }
+
+// ForwardEnvPrefixes are the prefixes of the variables that Load passes to
+// the ForwardEnv services: the chaincode's own settings (CHAINCODE_,
+// SUBSTRATE_) and the OpenTelemetry SDK's (OTEL_).
+var ForwardEnvPrefixes = []string{"CHAINCODE_", "SUBSTRATE_", "OTEL_"}
 
 // Load loads the compose project that o names.
 func Load(ctx context.Context, o Options) (*Project, error) {
@@ -95,6 +108,7 @@ func Load(ctx context.Context, o Options) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	forwardEnv(project, o.ForwardEnv, os.Environ())
 	// The labels the compose CLI sets: compose finds a project's containers
 	// by them.
 	for name, s := range project.Services {
@@ -315,3 +329,30 @@ func (p *Project) RemoveChaincodeContainers(ctx context.Context) error {
 
 // Close releases the Docker client.
 func (p *Project) Close() error { return p.client().Close() }
+
+// forwardEnv adds to each named service the variables of environ whose names
+// start with one of ForwardEnvPrefixes, unless the service sets them. A name
+// the file lists without a value ("CHAINCODE_LOG_LEVEL:") is already
+// resolved from the environment, or nil when unset, so it is filled too.
+func forwardEnv(project *types.Project, services []string, environ []string) {
+	for _, name := range services {
+		s, ok := project.Services[name]
+		if !ok {
+			continue
+		}
+		if s.Environment == nil {
+			s.Environment = types.MappingWithEquals{}
+		}
+		for _, kv := range environ {
+			k, v, ok := strings.Cut(kv, "=")
+			if !ok || !slices.ContainsFunc(ForwardEnvPrefixes, func(p string) bool { return strings.HasPrefix(k, p) }) {
+				continue
+			}
+			if cur, set := s.Environment[k]; set && cur != nil {
+				continue
+			}
+			s.Environment[k] = &v
+		}
+		project.Services[name] = s
+	}
+}

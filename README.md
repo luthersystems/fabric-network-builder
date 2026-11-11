@@ -175,6 +175,22 @@ command, written into the compose file, so you need no `.env` file. A compose
 file from v0.0.x has `$CCID_<NAME>` instead; for it the builder sets
 `CCID_<NAME>` from the `.id` files.
 
+### Chaincode environment
+
+When `up` starts the chaincode services, it passes them each variable of
+its own environment whose name starts with `CHAINCODE_`, `SUBSTRATE_` or
+`OTEL_`. These are the variables that substrate reads, for example
+`CHAINCODE_OTLP_TRACER_ENDPOINT`, `CHAINCODE_LOG_LEVEL` and the
+OpenTelemetry SDK's `OTEL_BSP_*` span batch settings. A compose file can
+pass a variable only by name, so before this the chaincode got only the two
+that `docker-compose-ccaas.yaml` names. A value that the compose file sets
+wins.
+
+The variables must be in the builder container's environment.
+`fabric-network-builder.sh` passes every `FNB_*`, `CHAINCODE_*`,
+`SUBSTRATE_*` and `OTEL_*` variable of your shell. With `docker run`, pass
+each one with `-e NAME`.
+
 ## Renewing certificates
 
 `cert_expiries` prints the expiry of every certificate in a crypto-config tree.

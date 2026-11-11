@@ -52,3 +52,54 @@ func TestLoadReadsDotEnv(t *testing.T) {
 	require.NotNil(t, env["TAG"])
 	assert.Equal(t, "from-builder", *env["TAG"])
 }
+
+// Load forwards the CHAINCODE_*, SUBSTRATE_* and OTEL_* variables of the
+// process environment to the ForwardEnv services only, and a value the file
+// sets wins.
+func TestLoadForwardEnv(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(`services:
+  cc-peer0:
+    image: busybox
+    ports:
+      - "9080:8080"
+    environment:
+      CHAINCODE_LOG_LEVEL:
+      OTEL_SERVICE_NAME: from-file
+  peer0:
+    image: busybox
+    ports:
+      - "7051:7051"
+      - "10.1.2.3:7053:7053"
+`), 0o600))
+	t.Setenv("CHAINCODE_LOG_LEVEL", "debug")
+	t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "200")
+	t.Setenv("OTEL_SERVICE_NAME", "from-env")
+	t.Setenv("SUBSTRATE_X", "y")
+	t.Setenv("UNRELATED_VAR", "z")
+	p, err := Load(context.Background(), Options{
+		Dir:        dir,
+		Name:       "forwardtest",
+		Files:      []string{"docker-compose.yaml"},
+		Out:        io.Discard,
+		ForwardEnv: []string{"cc-peer0", "missing"},
+	})
+	require.NoError(t, err)
+	defer func() { _ = p.Close() }()
+
+	cc := p.project.Services["cc-peer0"].Environment
+	get := func(k string) string {
+		v := cc[k]
+		if v == nil {
+			return "<unset>"
+		}
+		return *v
+	}
+	assert.Equal(t, "debug", get("CHAINCODE_LOG_LEVEL"))
+	assert.Equal(t, "200", get("OTEL_BSP_SCHEDULE_DELAY"))
+	assert.Equal(t, "from-file", get("OTEL_SERVICE_NAME"))
+	assert.Equal(t, "y", get("SUBSTRATE_X"))
+	assert.NotContains(t, cc, "UNRELATED_VAR")
+	assert.NotContains(t, p.project.Services["peer0"].Environment, "OTEL_BSP_SCHEDULE_DELAY")
+
+}

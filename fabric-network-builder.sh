@@ -12,8 +12,20 @@ PROJECT_PATH=$(pwd)
 # it differs from the host file's group, so ask a container.
 SOCK_GID=$(docker run --rm --entrypoint stat -v "$SOCK:$SOCK" "$DOCKER_IMAGE" -c %g "$SOCK")
 
+# Pass the builder's settings (FNB_*) and the variables it forwards to the
+# chaincode containers (CHAINCODE_*, SUBSTRATE_*, OTEL_*) by name, so their
+# values never show on the command line.
+ENV_ARGS=()
+while read -r name; do
+    case "$name" in
+    FNB_VERSION) ;;
+    FNB_* | CHAINCODE_* | SUBSTRATE_* | OTEL_*) ENV_ARGS+=(-e "$name") ;;
+    esac
+done < <(compgen -e)
+
 docker run --rm -it \
     -u "$(id -u):$(id -g)" --group-add "$SOCK_GID" \
+    "${ENV_ARGS[@]}" \
     -v "$SOCK:$SOCK" \
     -v "$PROJECT_PATH:$PROJECT_PATH" \
     -w "$PROJECT_PATH" \
