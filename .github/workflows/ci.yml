@@ -57,7 +57,7 @@ jobs:
   # no system channel, so the same config runs on 2.5 and 3.x
   # (luthersystems/substrate#1034).
   network:
-    name: Network (Fabric ${{ matrix.fabric }})
+    name: Network (Fabric ${{ matrix.fabric }}${{ matrix.imagens && format(', {0}', matrix.imagens) || '' }})
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -65,13 +65,16 @@ jobs:
         fabric:
           - 2.5.16
           - 3.1.4
+        imagens: [""]
         include:
-          # The 3.1 leg pulls through a registry-qualified FNB_IMAGENS, so
-          # an image path with a registry host reaches every compose
-          # service (#45: acre pulls through an ECR pull-through cache).
+          # A third leg pulls through a registry-qualified FNB_IMAGENS, so
+          # an image path with a registry host must reach every node (#45:
+          # acre pulls through an ECR pull-through cache). The smoke test
+          # checks each container's image reference, because
           # docker.io/hyperledger names the same images as the default.
+          # A new imagens value adds a leg; the default legs stay as they are.
           - fabric: 3.1.4
-            smoke_opts: -e FNB_IMAGENS=docker.io/hyperledger
+            imagens: docker.io/hyperledger
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -88,7 +91,7 @@ jobs:
         timeout-minutes: 10
       - name: Bring a network up
         env:
-          FNB_SMOKE_DOCKER_OPTS: ${{ matrix.smoke_opts }}
+          FNB_SMOKE_IMAGENS: ${{ matrix.imagens }}
         run: tests/network-smoke.sh luthersystems/fabric-network-builder:latest "${{ matrix.fabric }}"
         timeout-minutes: 15
 

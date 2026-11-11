@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -28,6 +29,11 @@ type imageTags struct {
 	// and CouchDB release apart from Fabric, so FNB_IMAGETAG does not
 	// move them.
 	ca, base string
+	// baseos is the fabric-baseos tag the peers run Go chaincode in. It
+	// is the two-part Fabric version, as the peer's own default
+	// $(TWO_DIGIT_VERSION) is, so the peers keep running the same image;
+	// the compose files set it only so that the image takes IMAGE_NS.
+	baseos string
 }
 
 // fabricVersionAtLeast25 reports whether a Fabric image tag is 2.5 or
@@ -70,11 +76,18 @@ func resolveImageTags(getenv func(string) string) (imageTags, error) {
 		}
 		t.ns = v
 	}
-	if v := getenv("FNB_CAIMAGETAG"); v != "" {
-		t.ca = v
-	}
-	if v := getenv("FNB_BASEIMAGETAG"); v != "" {
-		t.base = v
+	for _, o := range []struct {
+		name string
+		dst  *string
+	}{{"FNB_CAIMAGETAG", &t.ca}, {"FNB_BASEIMAGETAG", &t.base}} {
+		v := getenv(o.name)
+		if v == "" {
+			continue
+		}
+		if !tagRE.MatchString(v) {
+			return t, fmt.Errorf("%s %q is not an image tag", o.name, v)
+		}
+		*o.dst = v
 	}
 	if v := getenv("FNB_IMAGETAG"); v != "" {
 		t.image = v
@@ -82,6 +95,7 @@ func resolveImageTags(getenv func(string) string) (imageTags, error) {
 	if !fabricVersionAtLeast25(t.image) {
 		return t, fmt.Errorf("fabric %s is not supported: the builder supports Fabric 2.5 and later", t.image)
 	}
+	t.baseos = twoDigitVersion(t.image)
 	if v := getenv("FNB_TOOLSIMAGETAG"); v != "" {
 		t.tools = v
 		return t, nil
@@ -97,40 +111,49 @@ func resolveImageTags(getenv func(string) string) (imageTags, error) {
 	return t, nil
 }
 
-// checkImageNS refuses an FNB_IMAGENS value that cannot be the start of
-// an image reference. The compose files put "/fabric-peer:<tag>" after
-// it, so a trailing "/" gives "ns//fabric-peer" and a tag or digest in it
-// gives a reference with two tags. Docker reports those only when it
-// pulls, with an error that does not name FNB_IMAGENS.
-func checkImageNS(ns string) error {
-	switch {
-	case strings.ContainsAny(ns, " \t\n\r$@"):
-		return fmt.Errorf("FNB_IMAGENS %q has a space, a \"$\" or a \"@\"", ns)
-	case strings.HasPrefix(ns, "/") || strings.HasSuffix(ns, "/") || strings.Contains(ns, "//"):
-		return fmt.Errorf("FNB_IMAGENS %q has an empty path part: remove the extra \"/\"", ns)
+// twoDigitVersion returns "2.5" for "2.5.16", as Fabric's
+// TWO_DIGIT_VERSION does. A tag it cannot read is returned as it is.
+func twoDigitVersion(tag string) string {
+	parts := strings.SplitN(tag, ".", 3)
+	if len(parts) < 2 {
+		return tag
 	}
-	// A ":" is allowed only in the registry host, for a port
-	// ("host:5000/ns", or "host:5000" alone). In the last path part it is
-	// a tag.
-	first, _, _ := strings.Cut(ns, "/")
-	last := ns[strings.LastIndex(ns, "/")+1:]
-	_, port, hasColon := strings.Cut(first, ":")
-	if strings.Contains(ns, "/") && strings.Contains(last, ":") || hasColon && !allDigits(port) {
-		return fmt.Errorf("FNB_IMAGENS %q has a tag: set the tag with FNB_IMAGETAG", ns)
-	}
-	return nil
+	return parts[0] + "." + parts[1]
 }
 
-func allDigits(s string) bool {
-	if s == "" {
-		return false
+// The parts of an image reference, from the distribution reference
+// grammar that Docker uses (github.com/distribution/reference).
+var (
+	tagRE      = regexp.MustCompile(`^[\w][\w.-]{0,127}$`)
+	pathPartRE = regexp.MustCompile(`^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$`)
+	hostRE     = regexp.MustCompile(`^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*(?::[0-9]+)?$`)
+)
+
+// checkImageNS refuses an FNB_IMAGENS value that cannot be the start of
+// an image reference. The compose files put "/fabric-peer:<tag>" after
+// it, so a bad value shows up only when Docker pulls, with an error that
+// does not name FNB_IMAGENS. The value is path parts, lowercase, with an
+// optional registry host first. As Docker does, the first part is a host
+// when it has a "." or a port, or is "localhost". A port on a bare name
+// ("hyperledger:25") is refused: it reads as a tag, and Docker would
+// look for a registry host named "hyperledger".
+func checkImageNS(ns string) error {
+	parts := strings.Split(ns, "/")
+	first := parts[0]
+	host := strings.ContainsAny(first, ".:") || first == "localhost"
+	if host {
+		name, _, _ := strings.Cut(first, ":")
+		if !hostRE.MatchString(first) || !strings.Contains(name, ".") && name != "localhost" {
+			return fmt.Errorf("FNB_IMAGENS %q: %q is not a registry host (a tag goes in FNB_IMAGETAG)", ns, first)
+		}
+		parts = parts[1:]
 	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
+	for _, p := range parts {
+		if !pathPartRE.MatchString(p) {
+			return fmt.Errorf("FNB_IMAGENS %q: %q is not a lowercase image path part (no tag, no empty part)", ns, p)
 		}
 	}
-	return true
+	return nil
 }
 
 // composeEnv is the interpolation environment of the compose files.
@@ -144,13 +167,14 @@ func composeEnv(dir, channel, ccVersion string) (map[string]string, error) {
 		return nil, err
 	}
 	maps.Copy(env, map[string]string{
-		"CHANNEL_NAME":    channel,
-		"IMAGE_NS":        t.ns,
-		"CA_IMAGE_TAG":    t.ca,
-		"IMAGE_TAG":       t.image,
-		"TOOLS_IMAGE_TAG": t.tools,
-		"BASE_IMAGE_TAG":  t.base,
-		"TIMEOUT":         "10000",
+		"CHANNEL_NAME":     channel,
+		"IMAGE_NS":         t.ns,
+		"CA_IMAGE_TAG":     t.ca,
+		"IMAGE_TAG":        t.image,
+		"TOOLS_IMAGE_TAG":  t.tools,
+		"BASE_IMAGE_TAG":   t.base,
+		"BASEOS_IMAGE_TAG": t.baseos,
+		"TIMEOUT":          "10000",
 	})
 	// byfn.sh always set CHAINCODE_VERSION, empty without -V. Keep a value
 	// from the environment or .env when --cc-version is not given.

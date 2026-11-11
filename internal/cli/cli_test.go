@@ -207,7 +207,7 @@ func TestParseChown(t *testing.T) {
 
 func TestResolveImageTags(t *testing.T) {
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
-	def := imageTags{image: ImageTag, tools: ImageTag, ns: ImageNS, ca: CAImageTag, base: BaseImageTag}
+	def := imageTags{image: ImageTag, tools: ImageTag, ns: ImageNS, ca: CAImageTag, base: BaseImageTag, baseos: twoDigitVersion(ImageTag)}
 	with := func(f func(*imageTags)) imageTags { tg := def; f(&tg); return tg }
 	tags, err := resolveImageTags(env(nil))
 	require.NoError(t, err)
@@ -215,10 +215,10 @@ func TestResolveImageTags(t *testing.T) {
 	assert.Equal(t, "hyperledger", tags.ns)
 	tags, err = resolveImageTags(env(map[string]string{"FNB_IMAGETAG": "3.1.4"}))
 	require.NoError(t, err)
-	assert.Equal(t, with(func(tg *imageTags) { tg.image = "3.1.4" }), tags, "Fabric 3 has no tools image")
+	assert.Equal(t, with(func(tg *imageTags) { tg.image, tg.baseos = "3.1.4", "3.1" }), tags, "Fabric 3 has no tools image")
 	tags, err = resolveImageTags(env(map[string]string{"FNB_IMAGETAG": "3.1.4", "FNB_TOOLSIMAGETAG": "2.5.9"}))
 	require.NoError(t, err)
-	assert.Equal(t, with(func(tg *imageTags) { tg.image, tg.tools = "3.1.4", "2.5.9" }), tags)
+	assert.Equal(t, with(func(tg *imageTags) { tg.image, tg.tools, tg.baseos = "3.1.4", "2.5.9", "3.1" }), tags)
 	_, err = resolveImageTags(env(map[string]string{"FNB_IMAGETAG": "2.4.9"}))
 	require.ErrorContains(t, err, "2.5 and later")
 
@@ -234,28 +234,48 @@ func TestResolveImageTags(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, CAImageTag, tags.ca, "FNB_IMAGETAG does not move the CA tag")
 	assert.Equal(t, BaseImageTag, tags.base, "FNB_IMAGETAG does not move the CouchDB tag")
+	for _, name := range []string{"FNB_CAIMAGETAG", "FNB_BASEIMAGETAG"} {
+		for _, v := range []string{":1.5.15", "1.5.15/", "sha256:abc", "1 5", ".1"} {
+			_, err = resolveImageTags(env(map[string]string{name: v}))
+			require.ErrorContains(t, err, name+" ", v)
+		}
+	}
+	_, err = resolveImageTags(env(map[string]string{"FNB_IMAGENS": "bad/"}))
+	require.ErrorContains(t, err, "FNB_IMAGENS")
+}
+
+func TestTwoDigitVersion(t *testing.T) {
+	assert.Equal(t, "2.5", twoDigitVersion("2.5.16"))
+	assert.Equal(t, "3.1", twoDigitVersion("3.1"))
+	assert.Equal(t, "latest", twoDigitVersion("latest"))
 }
 
 func TestCheckImageNS(t *testing.T) {
 	for _, ns := range []string{
 		"hyperledger",
 		"luthersystems",
+		"docker.io/hyperledger",
 		"ghcr.io/hyperledger",
 		"123456789012.dkr.ecr.us-east-1.amazonaws.com/docker-hub/hyperledger",
 		"localhost:5000/hyperledger",
 		"localhost:5000",
+		"Registry.Example.com:443/a/b_c/d-e",
 	} {
 		assert.NoError(t, checkImageNS(ns), ns)
 	}
 	for ns, msg := range map[string]string{
-		"hyperledger/":          "empty path part",
-		"/hyperledger":          "empty path part",
-		"ghcr.io//hyperledger":  "empty path part",
-		"hyperledger:2.5":       "has a tag",
-		"ghcr.io/hyperledger:2": "has a tag",
-		"hyper ledger":          "a space",
-		"$NS":                   "a space",
-		"hyperledger@sha256":    "a space",
+		"hyperledger/":            "not a lowercase image path part",
+		"/hyperledger":            "not a lowercase image path part",
+		"ghcr.io//hyperledger":    "not a lowercase image path part",
+		"ghcr.io/hyperledger:2":   "not a lowercase image path part",
+		"ghcr.io/a:b/hyperledger": "not a lowercase image path part",
+		"MyOrg/hyperledger":       "not a lowercase image path part",
+		"hyper ledger":            "not a lowercase image path part",
+		"$NS":                     "not a lowercase image path part",
+		"hyperledger@sha256":      "not a lowercase image path part",
+		"hyperledger:2.5":         "not a registry host",
+		"hyperledger:25":          "not a registry host",
+		"ghcr.io:x/hyperledger":   "not a registry host",
 	} {
 		assert.ErrorContains(t, checkImageNS(ns), msg, ns)
 	}
@@ -264,6 +284,10 @@ func TestCheckImageNS(t *testing.T) {
 // The compose files read IMAGE_NS, CA_IMAGE_TAG and BASE_IMAGE_TAG from
 // composeEnv, so an override must reach them there.
 func TestComposeEnvImageOverrides(t *testing.T) {
+	// composeEnv reads the process environment: clear what a shell may
+	// have set, so the test does not depend on it.
+	t.Setenv("FNB_IMAGETAG", "")
+	t.Setenv("FNB_TOOLSIMAGETAG", "")
 	t.Setenv("FNB_IMAGENS", "registry.example.com/hyperledger")
 	t.Setenv("FNB_CAIMAGETAG", "1.5.15")
 	t.Setenv("FNB_BASEIMAGETAG", "0.4.18")
@@ -273,6 +297,7 @@ func TestComposeEnvImageOverrides(t *testing.T) {
 	assert.Equal(t, "1.5.15", env["CA_IMAGE_TAG"])
 	assert.Equal(t, "0.4.18", env["BASE_IMAGE_TAG"])
 	assert.Equal(t, ImageTag, env["IMAGE_TAG"])
+	assert.Equal(t, twoDigitVersion(ImageTag), env["BASEOS_IMAGE_TAG"])
 
 	t.Setenv("FNB_IMAGENS", "bad/")
 	_, err = composeEnv(t.TempDir(), "luther", "")
