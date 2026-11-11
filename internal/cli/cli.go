@@ -317,17 +317,22 @@ func (e *env) loadProject(ccVersion string) (*compose.Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	addr, err := publishAddr(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
 	chaincodes, err := ccaasServices(e.path("docker-compose-ccaas.yaml"))
 	if err != nil {
 		return nil, err
 	}
 	return compose.Load(e.ctx, compose.Options{
-		Dir:        dir,
-		Name:       projectName(),
-		Files:      e.composeFiles(),
-		Env:        envVars,
-		Out:        e.out,
-		ForwardEnv: chaincodes,
+		Dir:         dir,
+		Name:        projectName(),
+		Files:       e.composeFiles(),
+		Env:         envVars,
+		Out:         e.out,
+		ForwardEnv:  chaincodes,
+		PublishAddr: addr,
 	})
 }
 

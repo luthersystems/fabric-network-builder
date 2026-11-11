@@ -62,6 +62,9 @@ type Options struct {
 	// chaincode never saw the others it reads, such as OTEL_BSP_* for its
 	// span batches. A variable the compose file sets keeps that value.
 	ForwardEnv []string
+	// PublishAddr is the host address that a published port binds to when
+	// the compose file gives none. Empty leaves the ports as the files say.
+	PublishAddr string
 }
 
 // ForwardEnvPrefixes are the prefixes of the variables that Load passes to
@@ -109,6 +112,7 @@ func Load(ctx context.Context, o Options) (*Project, error) {
 		return nil, err
 	}
 	forwardEnv(project, o.ForwardEnv, os.Environ())
+	publishOn(project, o.PublishAddr)
 	// The labels the compose CLI sets: compose finds a project's containers
 	// by them.
 	for name, s := range project.Services {
@@ -352,6 +356,21 @@ func forwardEnv(project *types.Project, services []string, environ []string) {
 				continue
 			}
 			s.Environment[k] = &v
+		}
+		project.Services[name] = s
+	}
+}
+
+// publishOn binds each published port that has no host address to addr.
+func publishOn(project *types.Project, addr string) {
+	if addr == "" {
+		return
+	}
+	for name, s := range project.Services {
+		for i := range s.Ports {
+			if s.Ports[i].Published != "" && s.Ports[i].HostIP == "" {
+				s.Ports[i].HostIP = addr
+			}
 		}
 		project.Services[name] = s
 	}

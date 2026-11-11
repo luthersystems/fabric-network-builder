@@ -149,6 +149,19 @@ With none of these set, the network runs the same images as before.
 `FNB_SMOKE_IMAGENS` when it is set; CI runs a 3.1 leg with
 `docker.io/hyperledger`.
 
+### Published ports
+
+The orderer, peer, CA, CouchDB and chaincode services publish their ports
+on `127.0.0.1` only. The network uses test credentials and has no real
+authentication, so by default other machines on your network cannot reach
+it. Containers on the `byfn` network reach the nodes by name, not through
+these ports. The builder sets the address when it loads the compose files,
+so a compose file that an older builder wrote binds to it too. A port that
+the file gives an address keeps it.
+
+Set `FNB_PUBLISH_ADDR` to publish on another address, for example
+`FNB_PUBLISH_ADDR=0.0.0.0` for every interface, as v0.1.1 and earlier did.
+
 ## Chaincode as a Service (CCaaS)
 
 `generatecc --ccaas` packages each chaincode variant as a CCaaS stub and emits

@@ -9,6 +9,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPublishAddr(t *testing.T) {
+	env := func(v string) func(string) string { return func(string) string { return v } }
+	a, err := publishAddr(env(""))
+	require.NoError(t, err)
+	assert.Equal(t, "127.0.0.1", a)
+	a, err = publishAddr(env("0.0.0.0"))
+	require.NoError(t, err)
+	assert.Equal(t, "0.0.0.0", a)
+	_, err = publishAddr(env("localhost"))
+	assert.ErrorContains(t, err, "FNB_PUBLISH_ADDR")
+}
+
 func TestCCaaSServices(t *testing.T) {
 	names, err := ccaasServices(filepath.Join(t.TempDir(), "none.yaml"))
 	require.NoError(t, err)

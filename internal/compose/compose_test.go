@@ -55,8 +55,9 @@ func TestLoadReadsDotEnv(t *testing.T) {
 
 // Load forwards the CHAINCODE_*, SUBSTRATE_* and OTEL_* variables of the
 // process environment to the ForwardEnv services only, and a value the file
-// sets wins.
-func TestLoadForwardEnv(t *testing.T) {
+// sets wins. It binds published ports without a host address to
+// PublishAddr and leaves an explicit one as it is.
+func TestLoadForwardEnvAndPublishAddr(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "docker-compose.yaml"), []byte(`services:
   cc-peer0:
@@ -78,11 +79,12 @@ func TestLoadForwardEnv(t *testing.T) {
 	t.Setenv("SUBSTRATE_X", "y")
 	t.Setenv("UNRELATED_VAR", "z")
 	p, err := Load(context.Background(), Options{
-		Dir:        dir,
-		Name:       "forwardtest",
-		Files:      []string{"docker-compose.yaml"},
-		Out:        io.Discard,
-		ForwardEnv: []string{"cc-peer0", "missing"},
+		Dir:         dir,
+		Name:        "forwardtest",
+		Files:       []string{"docker-compose.yaml"},
+		Out:         io.Discard,
+		ForwardEnv:  []string{"cc-peer0", "missing"},
+		PublishAddr: "127.0.0.1",
 	})
 	require.NoError(t, err)
 	defer func() { _ = p.Close() }()
@@ -102,4 +104,9 @@ func TestLoadForwardEnv(t *testing.T) {
 	assert.NotContains(t, cc, "UNRELATED_VAR")
 	assert.NotContains(t, p.project.Services["peer0"].Environment, "OTEL_BSP_SCHEDULE_DELAY")
 
+	assert.Equal(t, "127.0.0.1", p.project.Services["cc-peer0"].Ports[0].HostIP)
+	peer := p.project.Services["peer0"].Ports
+	require.Len(t, peer, 2)
+	assert.Equal(t, "127.0.0.1", peer[0].HostIP)
+	assert.Equal(t, "10.1.2.3", peer[1].HostIP)
 }
