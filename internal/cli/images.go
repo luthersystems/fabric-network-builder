@@ -77,9 +77,9 @@ func resolveImageTags(getenv func(string) string) (imageTags, error) {
 		t.ns = v
 	}
 	for _, o := range []struct {
-		name string
 		dst  *string
-	}{{"FNB_CAIMAGETAG", &t.ca}, {"FNB_BASEIMAGETAG", &t.base}} {
+		name string
+	}{{&t.ca, "FNB_CAIMAGETAG"}, {&t.base, "FNB_BASEIMAGETAG"}} {
 		v := getenv(o.name)
 		if v == "" {
 			continue
