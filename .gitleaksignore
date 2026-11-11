@@ -1,0 +1,18 @@
+# couchdb/local.ini is CouchDB's stock local.ini, which the builder writes into
+# every dev network as it is (the golden tests pin it byte for byte). Its
+# "secret" is the cookie secret of a CouchDB that runs only on the developer's
+# own machine, and the curl lines are CouchDB's own example comments with
+# placeholder passwords. Neither is a credential to rotate. A network that
+# needs its own CouchDB secret sets it in its own config.
+internal/render/templates/couchdb/local.ini:curl-auth-user:81
+internal/render/templates/couchdb/local.ini:generic-api-key:73
+internal/render/testdata/golden/big/couchdb/local.ini:curl-auth-user:81
+internal/render/testdata/golden/big/couchdb/local.ini:generic-api-key:73
+internal/render/testdata/golden/default/couchdb/local.ini:curl-auth-user:81
+internal/render/testdata/golden/default/couchdb/local.ini:generic-api-key:73
+internal/render/testdata/golden/luther/couchdb/local.ini:curl-auth-user:81
+internal/render/testdata/golden/luther/couchdb/local.ini:generic-api-key:73
+internal/render/testdata/golden/nchoose2/couchdb/local.ini:curl-auth-user:81
+internal/render/testdata/golden/nchoose2/couchdb/local.ini:generic-api-key:73
+internal/render/testdata/golden/nchoose2common/couchdb/local.ini:curl-auth-user:81
+internal/render/testdata/golden/nchoose2common/couchdb/local.ini:generic-api-key:73
