@@ -261,7 +261,7 @@ func TestCheckImageNS(t *testing.T) {
 		"localhost:5000",
 		"Registry.Example.com:443/a/b_c/d-e",
 	} {
-		assert.NoError(t, checkImageNS(ns), ns)
+		require.NoError(t, checkImageNS(ns), ns)
 	}
 	for ns, msg := range map[string]string{
 		"hyperledger/":            "not a lowercase image path part",
@@ -277,7 +277,7 @@ func TestCheckImageNS(t *testing.T) {
 		"hyperledger:25":          "not a registry host",
 		"ghcr.io:x/hyperledger":   "not a registry host",
 	} {
-		assert.ErrorContains(t, checkImageNS(ns), msg, ns)
+		require.ErrorContains(t, checkImageNS(ns), msg, ns)
 	}
 }
 
