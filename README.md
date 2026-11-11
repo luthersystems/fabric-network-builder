@@ -119,6 +119,36 @@ its tag. The builder does not use the `cli` service; it stays for your own
 tag, checks that every node joined the channel and commits a chaincode
 definition. CI runs it on 2.5 and 3.1.
 
+### Image registry
+
+The images come from Docker Hub's `hyperledger` namespace by default. To
+pull them from a mirror, such as an ECR pull-through cache of Docker Hub,
+set `FNB_IMAGENS` to the registry and path in front of each image name:
+
+```sh
+docker run -e FNB_IMAGENS=123456789012.dkr.ecr.us-east-1.amazonaws.com/docker-hub/hyperledger \
+  ... luthersystems/fabric-network-builder up
+```
+
+The orderer, peer, CouchDB and `cli` (fabric-tools) services use it, and so
+do the images the peers pull themselves: `fabric-ccenv` to build a Go
+chaincode and `fabric-baseos` to run it. The peers' Docker daemon must be
+able to pull from the mirror too. The value is lowercase path parts with an
+optional registry host (and port) first, with no tag and no trailing `/`.
+The builder refuses another value before it starts a container.
+
+Fabric CA and CouchDB release apart from Fabric, so `FNB_IMAGETAG` does not
+move their tags. `FNB_BASEIMAGETAG` sets the `fabric-couchdb` tag, for a
+mirror that holds other tags than the image's defaults. `FNB_CAIMAGETAG`
+sets `CA_IMAGE_TAG`, the `fabric-ca` tag in `docker-compose-e2e.yaml`. The
+builder writes that file but does not start its CA services, and it keeps
+`$IMAGE_NS` and `$CA_IMAGE_TAG` in it for the tool that runs it.
+
+With none of these set, the network runs the same images as before.
+`tests/network-smoke.sh` checks that every node runs an image from
+`FNB_SMOKE_IMAGENS` when it is set; CI runs a 3.1 leg with
+`docker.io/hyperledger`.
+
 ## Chaincode as a Service (CCaaS)
 
 `generatecc --ccaas` packages each chaincode variant as a CCaaS stub and emits

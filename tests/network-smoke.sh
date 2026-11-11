@@ -15,6 +15,9 @@
 #
 # Usage: tests/network-smoke.sh IMAGE FABRIC_TAG
 #   FNB_SMOKE_DOCKER_OPTS  extra `docker run` options
+#   FNB_SMOKE_IMAGENS      run with this FNB_IMAGENS, and check that every
+#                          node runs an image from it (#45: a consumer that
+#                          pulls through a mirror must get every image there)
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -37,6 +40,7 @@ fnb() {
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v "${work}:${work}" -w "${work}" \
     -e FNB_IMAGETAG="${fabric_tag}" \
+    -e FNB_IMAGENS="${FNB_SMOKE_IMAGENS:-}" \
     -u "$(id -u):$(id -g)" --group-add "${sock_gid}" \
     ${FNB_SMOKE_DOCKER_OPTS:-} \
     "${image}" --chown "$(id -u):$(id -g)" --channel "${channel}" --force "$@"
@@ -77,6 +81,19 @@ case "${running}" in
   *":${fabric_tag}") ;;
   *) echo "orderer runs ${running}, want tag ${fabric_tag}" >&2; exit 1 ;;
 esac
+
+# Docker names docker.io/hyperledger/x and hyperledger/x the same image, so
+# only the reference the container was created from shows that the builder
+# put FNB_IMAGENS in front of each image.
+want_ns=${FNB_SMOKE_IMAGENS:-hyperledger}
+for c in orderer0.luther.systems peer0.org1.luther.systems peer1.org1.luther.systems \
+  peer0.org2.luther.systems peer1.org2.luther.systems; do
+  running=$(docker inspect -f '{{.Config.Image}}' "${c}")
+  case "${running}" in
+    "${want_ns}/"*) ;;
+    *) echo "${c} runs ${running}, want an image from ${want_ns}" >&2; exit 1 ;;
+  esac
+done
 
 # Ask the orderer itself: the peers join from the genesis block without it.
 admin=/crypto-config/ordererOrganizations/luther.systems/users/Admin@luther.systems/tls
