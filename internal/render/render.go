@@ -167,11 +167,11 @@ func Network(n *topology.Network) ([]File, error) {
 		}
 		files = append(files, File{Path: name, Content: b, Mode: 0o644})
 	}
-	b, err := topologyFile(n)
-	if err != nil {
-		return nil, err
+	top, terr := topologyFile(n)
+	if terr != nil {
+		return nil, terr
 	}
-	files = append(files, File{Path: network.File, Content: b, Mode: 0o644})
+	files = append(files, File{Path: network.File, Content: top, Mode: 0o644})
 	return files, nil
 }
 

@@ -59,8 +59,8 @@ func ReadVars(dir string) (*Vars, error) {
 	switch {
 	case err == nil:
 		v = &Vars{}
-		if err := json.Unmarshal(b, v); err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+		if jerr := json.Unmarshal(b, v); jerr != nil {
+			return nil, fmt.Errorf("%s: %w", path, jerr)
 		}
 	case errors.Is(err, os.ErrNotExist):
 		path = filepath.Join(dir, legacyFile)
