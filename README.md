@@ -149,6 +149,22 @@ With none of these set, the network runs the same images as before.
 `FNB_SMOKE_IMAGENS` when it is set; CI runs a 3.1 leg with
 `docker.io/hyperledger`.
 
+### Published ports
+
+The orderer, peer, CA and chaincode services publish their ports on
+`127.0.0.1` only (IPv4: use `127.0.0.1`, not a `localhost` that resolves to
+`::1`). The network uses test credentials and has no real
+authentication, so by default other machines on your network cannot reach
+it. Containers on the `byfn` network reach the nodes by name, not through
+these ports. The builder sets the address when it loads the compose files,
+so a compose file that an older builder wrote binds to it too. A port that
+the file gives an address keeps it.
+
+Set `FNB_PUBLISH_ADDR` to publish on another address, for example
+`FNB_PUBLISH_ADDR=0.0.0.0` for every interface, as v0.1.1 and earlier did.
+The first `up` of a running network with this release recreates its
+containers once, because their ports change.
+
 ## Chaincode as a Service (CCaaS)
 
 `generatecc --ccaas` packages each chaincode variant as a CCaaS stub and emits
@@ -174,6 +190,29 @@ Each service gets its package ID (`chaincodes/<name>-<version>.id`) as its
 command, written into the compose file, so you need no `.env` file. A compose
 file from v0.0.x has `$CCID_<NAME>` instead; for it the builder sets
 `CCID_<NAME>` from the `.id` files.
+
+### Chaincode environment
+
+When `up` starts the chaincode services, it passes them each variable of
+its own environment whose name starts with `CHAINCODE_`, `SUBSTRATE_` or
+`OTEL_`. These are the variables that substrate reads, for example
+`CHAINCODE_OTLP_TRACER_ENDPOINT`, `CHAINCODE_LOG_LEVEL` and the
+OpenTelemetry SDK's `OTEL_BSP_*` span batch settings. A compose file can
+pass a variable only by name, so before this the chaincode got only the two
+that `docker-compose-ccaas.yaml` names. A value that the compose file sets
+wins.
+
+`CHAINCODE_VERSION` and `CCID_*` are not forwarded: they are the builder's
+own inputs, and `--cc-version` sets the image tag.
+
+The variables must be in the builder container's environment.
+`fabric-network-builder.sh` passes every `FNB_*`, `CHAINCODE_*`,
+`SUBSTRATE_*` and `OTEL_*` variable of your shell, so a substrate setting
+or hatch that you exported for something else (for example a
+`SUBSTRATE_ALLOW_*` for tests) reaches the chaincode too; unset it first.
+With `docker run`, pass each one with `-e NAME`. A changed value recreates
+the chaincode containers at the next `up`, and a variable that is no longer
+set is gone from them after it.
 
 ## Renewing certificates
 

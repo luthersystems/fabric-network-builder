@@ -51,10 +51,26 @@ type Options struct {
 	// Out receives the progress of compose.
 	Out io.Writer
 	// Dir is the project directory; Files are relative to it.
-	Dir   string
-	Name  string
-	Files []string
+	Dir  string
+	Name string
+	// PublishAddr is the host address that a published port binds to when
+	// the compose file gives none. Empty leaves the ports as the files say.
+	PublishAddr string
+	Files       []string
+	// ForwardEnv names the services (the chaincode containers) that get
+	// each variable of the process environment whose name starts with one
+	// of ForwardEnvPrefixes. A compose file can pass a variable only by
+	// name, so docker-compose-ccaas.yaml passes a fixed list
+	// (CHAINCODE_OTLP_TRACER_ENDPOINT, CHAINCODE_LOG_LEVEL) and the
+	// chaincode never saw the others it reads, such as OTEL_BSP_* for its
+	// span batches. A variable the compose file sets keeps that value.
+	ForwardEnv []string
 }
+
+// ForwardEnvPrefixes are the prefixes of the variables that Load passes to
+// the ForwardEnv services: the chaincode's own settings (CHAINCODE_,
+// SUBSTRATE_) and the OpenTelemetry SDK's (OTEL_).
+var ForwardEnvPrefixes = []string{"CHAINCODE_", "SUBSTRATE_", "OTEL_"}
 
 // Load loads the compose project that o names.
 func Load(ctx context.Context, o Options) (*Project, error) {
@@ -95,6 +111,8 @@ func Load(ctx context.Context, o Options) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	forwardEnv(project, o.ForwardEnv, os.Environ(), env)
+	publishOn(project, o.PublishAddr)
 	// The labels the compose CLI sets: compose finds a project's containers
 	// by them.
 	for name, s := range project.Services {
@@ -315,3 +333,52 @@ func (p *Project) RemoveChaincodeContainers(ctx context.Context) error {
 
 // Close releases the Docker client.
 func (p *Project) Close() error { return p.client().Close() }
+
+// forwardEnv adds to each named service the variables of environ whose names
+// start with one of ForwardEnvPrefixes, unless the service sets them. A name
+// the file lists without a value ("CHAINCODE_LOG_LEVEL:") is resolved from
+// the environment, or nil when unset, so a nil one is filled too. The
+// builder's own interpolation variables (skip: CHAINCODE_VERSION, CCID_*)
+// are not forwarded: a CHAINCODE_VERSION left in the shell must not
+// disagree with the --cc-version the image tag came from.
+func forwardEnv(project *types.Project, services []string, environ []string, skip map[string]string) {
+	for _, name := range services {
+		s, ok := project.Services[name]
+		if !ok {
+			continue
+		}
+		if s.Environment == nil {
+			s.Environment = types.MappingWithEquals{}
+		}
+		for _, kv := range environ {
+			k, v, ok := strings.Cut(kv, "=")
+			if !ok || !slices.ContainsFunc(ForwardEnvPrefixes, func(p string) bool { return strings.HasPrefix(k, p) }) {
+				continue
+			}
+			if _, builder := skip[k]; builder {
+				continue
+			}
+			if cur, set := s.Environment[k]; set && cur != nil {
+				continue
+			}
+			s.Environment[k] = &v
+		}
+		project.Services[name] = s
+	}
+}
+
+// publishOn binds each port that has no host address to addr, also one with
+// no host port ("- 8080"), which Docker publishes on a random host port.
+func publishOn(project *types.Project, addr string) {
+	if addr == "" {
+		return
+	}
+	for name, s := range project.Services {
+		for i := range s.Ports {
+			if s.Ports[i].HostIP == "" {
+				s.Ports[i].HostIP = addr
+			}
+		}
+		project.Services[name] = s
+	}
+}
