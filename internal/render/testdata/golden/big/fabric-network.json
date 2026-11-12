@@ -1,0 +1,17 @@
+{
+  "domain_name": "example.org",
+  "endorsement_policy": "OR('Org1MSP.member', 'Org2MSP.member', 'Org3MSP.member')",
+  "org_indices": [
+    1,
+    2,
+    3
+  ],
+  "peer_indices": [
+    0
+  ],
+  "orderer_indices": [
+    0,
+    1,
+    2
+  ]
+}

@@ -56,7 +56,8 @@ func fabricVersionAtLeast25(tag string) bool {
 // Fabric release (luthersystems/substrate#1034 runs its e2e networks on 2.5
 // and 3.x), and FNB_TOOLSIMAGETAG. The cli container runs fabric-tools,
 // which Fabric 3 no longer publishes, so the tools tag keeps a 2.x override
-// and otherwise falls back to the default 2.x tag.
+// and otherwise falls back to the default 2.x tag. Only a network that a
+// builder before #35 generated has a cli service.
 //
 // FNB_IMAGENS replaces the image namespace. A consumer that pulls Fabric
 // images through a mirror (an ECR pull-through cache of Docker Hub, as

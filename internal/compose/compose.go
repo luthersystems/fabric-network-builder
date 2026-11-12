@@ -154,7 +154,7 @@ func (p *Project) Up(ctx context.Context) error {
 // Down stops and removes the containers, networks and volumes, as
 // `docker compose down --volumes`.
 func (p *Project) Down(ctx context.Context) error {
-	return p.service.Down(ctx, p.project.Name, api.DownOptions{Project: p.project, Volumes: true})
+	return p.service.Down(ctx, p.project.Name, api.DownOptions{Project: p.project, Volumes: true, RemoveOrphans: true})
 }
 
 func (p *Project) client() client.APIClient { return p.dockerCli.Client() }

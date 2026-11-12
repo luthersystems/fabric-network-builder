@@ -18,7 +18,10 @@ import (
 // reproduce them byte for byte. Do not regenerate them from the Go code: a
 // diff here is a change every consumer sees. One change since: configtx.yaml
 // has the AnyOrgsOrdererGenesis and AnyOrgsChannel profiles of v0.0.10
-// again, because the mars Kubernetes roles still use them.
+// again, because the mars Kubernetes roles still use them. And since #35
+// generate writes no scripts/*.sh and no cli service in
+// docker-compose-cli.yaml, and writes fabric-network.json, the topology that
+// scripts/variables.sh held.
 func goldenOptions(t *testing.T) map[string]topology.Options {
 	t.Helper()
 	opts := func(f func(*topology.Options)) topology.Options {
