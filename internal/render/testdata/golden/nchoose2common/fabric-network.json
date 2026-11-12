@@ -1,0 +1,16 @@
+{
+  "domain_name": "example.com",
+  "endorsement_policy": "Or('Org1MSP.member', OutOf(2, 'Org2MSP.member', 'Org3MSP.member', 'Org4MSP.member'))",
+  "org_indices": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "peer_indices": [
+    0
+  ],
+  "orderer_indices": [
+    0
+  ]
+}

@@ -99,7 +99,10 @@ func TestGenerateArchive(t *testing.T) {
 	names := archiveNamesIn(t, "net.tar.xz")
 	assert.Contains(t, names, "configtx.yaml")
 	assert.Contains(t, names, "channel-artifacts/luther.block")
-	assert.Contains(t, names, "scripts/variables.sh")
+	assert.Contains(t, names, "fabric-network.json")
+	for _, n := range names {
+		assert.NotContains(t, n, "scripts/", "generate writes no scripts (#35)")
+	}
 	assert.NotContains(t, names, "docker-compose-cli.yaml")
 	left, err := filepath.Glob("fabric-network*")
 	require.NoError(t, err)
@@ -115,6 +118,8 @@ func TestExtendAddsPeersAndArchives(t *testing.T) {
 	t.Chdir(t.TempDir())
 	code, _, errOut := runCLI(t, "", "-f", "generate", "--org-count", "1", "--peer-count", "1")
 	require.Equal(t, 0, code, errOut)
+	assert.FileExists(t, "fabric-network.json")
+	assert.NoDirExists(t, "scripts", "generate writes no scripts (#35)")
 	code, _, errOut = runCLI(t, "", "-f", "generate", "--org-count", "1", "--peer-count", "2", "--template")
 	require.Equal(t, 0, code, errOut)
 	code, _, errOut = runCLI(t, "", "-f", "extend", "--archive", "ext.tar.xz")

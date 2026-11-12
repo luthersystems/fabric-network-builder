@@ -124,7 +124,7 @@ func exists(p string) bool {
 }
 
 // archiveNames are the paths a --archive tar.xz holds.
-var archiveNames = []string{"crypto-config", "crypto-config.yaml", "configtx.yaml", "channel-artifacts", "scripts"}
+var archiveNames = []string{"crypto-config", "crypto-config.yaml", "configtx.yaml", "channel-artifacts", network.File}
 
 // cryptoAssets are the paths --chown changes after cryptogen.
 var cryptoAssets = []string{"crypto-config", "channel-artifacts", "docker-compose-e2e.yaml"}

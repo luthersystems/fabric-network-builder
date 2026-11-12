@@ -93,12 +93,17 @@ the anchor peers in it. Only the `etcdraft` orderer type is generated.
 a Fabric 2.5 network the v0.0.10 way: `channel-artifacts/genesis.block` (the
 system channel), `channel.tx` and `<MSP>anchors.tx`.
 
-`generate` still writes the v0.0.10 `scripts/*.sh` into the project, for
-callers that run them in the `cli` container. The builder does not use them.
-They go away in a later release
-([#35](https://github.com/luthersystems/fabric-network-builder/issues/35));
-use the builder's commands (`up`, `install`, `invoke`, `ansible-vars`)
-instead.
+`generate` also writes `fabric-network.json`, the network's topology (domain,
+org, peer and orderer indices, endorsement policy). `up`, `install` and the
+other commands read it, because `generate`'s options are not passed again.
+Keep it with the other generated files.
+
+Since [#35](https://github.com/luthersystems/fabric-network-builder/issues/35),
+`generate` writes no v0.0.10 `scripts/*.sh` and no `cli` service in
+`docker-compose-cli.yaml`; use the builder's commands (`up`, `install`,
+`invoke`, `ansible-vars`) instead. `up` still runs a network that an older
+builder generated: it reads the topology from that network's
+`scripts/variables.sh` and starts the `cli` service its compose file has.
 
 ### Fabric release
 
@@ -110,10 +115,9 @@ docker run -e FNB_IMAGETAG=3.1.4 ... luthersystems/fabric-network-builder up
 ```
 
 It sets the peer, orderer and ccenv image tag. A tag before 2.5 is refused.
-The `cli` service runs `fabric-tools`, which Fabric 3 does not publish, so
-for a 3.x tag it stays on the image's own 2.5 tag. `FNB_TOOLSIMAGETAG` sets
-its tag. The builder does not use the `cli` service; it stays for your own
-`docker exec` commands.
+A network that an older builder generated has a `cli` service that runs
+`fabric-tools`, which Fabric 3 does not publish, so for a 3.x tag it stays on
+the image's own 2.5 tag. `FNB_TOOLSIMAGETAG` sets its tag.
 
 `tests/network-smoke.sh IMAGE TAG` generates a network, brings it up on that
 tag, checks that every node joined the channel and commits a chaincode
@@ -130,7 +134,7 @@ docker run -e FNB_IMAGENS=123456789012.dkr.ecr.us-east-1.amazonaws.com/docker-hu
   ... luthersystems/fabric-network-builder up
 ```
 
-The orderer, peer, CouchDB and `cli` (fabric-tools) services use it, and so
+The orderer, peer and CouchDB services (and the `cli` service of an older network) use it, and so
 do the images the peers pull themselves: `fabric-ccenv` to build a Go
 chaincode and `fabric-baseos` to run it. The peers' Docker daemon must be
 able to pull from the mirror too. The value is lowercase path parts with an

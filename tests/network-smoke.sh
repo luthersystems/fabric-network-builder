@@ -72,6 +72,9 @@ test -f "${work}/channel-artifacts/${channel}.block"
 for f in genesis.block channel.tx Org1MSPanchors.tx Org2MSPanchors.tx; do
   test -f "${work}/channel-artifacts/${f}"
 done
+# The topology is in fabric-network.json; the v0.0.x scripts are gone (#35).
+test -f "${work}/fabric-network.json"
+if test -e "${work}/scripts"; then echo "generate wrote scripts/" >&2; exit 1; fi
 
 fnb -s goleveldb up --cc-version smoke
 
@@ -96,11 +99,21 @@ for c in orderer0.luther.systems peer0.org1.luther.systems peer1.org1.luther.sys
 done
 
 # Ask the orderer itself: the peers join from the genesis block without it.
-admin=/crypto-config/ordererOrganizations/luther.systems/users/Admin@luther.systems/tls
-ocheck=$(docker exec cli osnadmin channel list --channelID "${channel}" \
-  -o orderer0.luther.systems:7053 \
-  --ca-file /crypto-config/ordererOrganizations/luther.systems/orderers/orderer0.luther.systems/msp/tlscacerts/tlsca.luther.systems-cert.pem \
-  --client-cert "${admin}/client.crt" --client-key "${admin}/client.key" 2>&1)
+# The network has no cli container since #35, so osnadmin runs in a
+# fabric-tools container of its own on the network's Docker network.
+# Fabric 3 publishes no fabric-tools image; osnadmin 2.5 speaks the same
+# channel participation API.
+compose_net=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' orderer0.luther.systems)
+osnadmin_list() {
+  local admin=/crypto-config/ordererOrganizations/luther.systems/users/Admin@luther.systems/tls
+  docker run --rm --network "${compose_net}" -v "${work}/crypto-config:/crypto-config:ro" \
+    "${FNB_SMOKE_IMAGENS:-hyperledger}/fabric-tools:2.5.16" \
+    osnadmin channel list --channelID "${channel}" \
+    -o orderer0.luther.systems:7053 \
+    --ca-file /crypto-config/ordererOrganizations/luther.systems/orderers/orderer0.luther.systems/msp/tlscacerts/tlsca.luther.systems-cert.pem \
+    --client-cert "${admin}/client.crt" --client-key "${admin}/client.key" 2>&1
+}
+ocheck=$(osnadmin_list)
 echo "${ocheck}"
 grep -q '"status": "active"' <<<"${ocheck}" || { echo "orderer0 is not an active member of ${channel}" >&2; exit 1; }
 
@@ -162,9 +175,6 @@ for org in 1 2; do
     grep -q "Version: 1.0, Sequence: 1" <<<"${out}" || { echo "${host} does not serve ${channel} after reissue" >&2; exit 1; }
   done
 done
-ocheck=$(docker exec cli osnadmin channel list --channelID "${channel}" \
-  -o orderer0.luther.systems:7053 \
-  --ca-file /crypto-config/ordererOrganizations/luther.systems/orderers/orderer0.luther.systems/msp/tlscacerts/tlsca.luther.systems-cert.pem \
-  --client-cert "${admin}/client.crt" --client-key "${admin}/client.key" 2>&1)
+ocheck=$(osnadmin_list)
 grep -q '"status": "active"' <<<"${ocheck}" || { echo "orderer0 is not active in ${channel} after reissue: ${ocheck}" >&2; exit 1; }
 echo "network on Fabric ${fabric_tag}: orderer and 4 peers joined ${channel}; smoke 1.0 committed; nodes serve on reissued certs"

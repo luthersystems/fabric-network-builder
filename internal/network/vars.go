@@ -5,6 +5,8 @@ package network
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,15 +15,33 @@ import (
 	"strings"
 )
 
-// Vars are the topology values `generate` wrote to scripts/variables.sh.
-// The commands that run after generate (up, install) read them there, as
-// the shell scripts did, because generate's options are not passed again.
+// File is the file, relative to the project directory, where `generate`
+// writes the topology.
+const File = "fabric-network.json"
+
+// legacyFile is where the builder before #35 wrote the topology, as the
+// shell assignments of the v0.0.x scripts. A network generated then has no
+// File.
+var legacyFile = filepath.Join("scripts", "variables.sh")
+
+// Vars are the topology values that `generate` writes to File. The
+// commands that run after generate (up, install) read them there, because
+// generate's options are not passed again.
 type Vars struct {
-	DomainName        string
-	EndorsementPolicy string
-	OrgIndices        []int
-	PeerIndices       []int
-	OrdererIndices    []int
+	DomainName        string `json:"domain_name"`
+	EndorsementPolicy string `json:"endorsement_policy"`
+	OrgIndices        []int  `json:"org_indices"`
+	PeerIndices       []int  `json:"peer_indices"`
+	OrdererIndices    []int  `json:"orderer_indices"`
+}
+
+// JSON is the content of File for v.
+func (v *Vars) JSON() ([]byte, error) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(b, '\n'), nil
 }
 
 var (
@@ -29,14 +49,37 @@ var (
 	arrayRe  = regexp.MustCompile(`^([A-Z_]+)=\(\s*(.*?)\s*\)$`)
 )
 
-// ReadVars parses <dir>/scripts/variables.sh. It reads only the
-// assignments the template writes, not general shell.
+// ReadVars reads the topology of the network in dir from File. A network
+// that has no File, made by v0.0.x or by v0.1.x before #35, has its
+// topology in scripts/variables.sh, so ReadVars reads that instead.
 func ReadVars(dir string) (*Vars, error) {
-	path := filepath.Join(dir, "scripts", "variables.sh")
+	path := filepath.Join(dir, File)
 	b, err := os.ReadFile(path) //nolint:gosec // project file
-	if err != nil {
-		return nil, fmt.Errorf("read the network topology (run generate first): %w", err)
+	var v *Vars
+	switch {
+	case err == nil:
+		v = &Vars{}
+		if err := json.Unmarshal(b, v); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+	case errors.Is(err, os.ErrNotExist):
+		path = filepath.Join(dir, legacyFile)
+		b, err = os.ReadFile(path) //nolint:gosec // project file
+		if err != nil {
+			return nil, fmt.Errorf("read the network topology (run generate first): %w", err)
+		}
+		if v, err = parseLegacy(path, b); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("read the network topology: %w", err)
 	}
+	return v, v.check(path)
+}
+
+// parseLegacy parses the scripts/variables.sh of an older network. It reads
+// only the assignments the template wrote, not general shell.
+func parseLegacy(path string, b []byte) (*Vars, error) {
 	v := &Vars{}
 	s := bufio.NewScanner(bytes.NewReader(b))
 	for s.Scan() {
@@ -77,15 +120,22 @@ func ReadVars(dir string) (*Vars, error) {
 		// one orderer, orderer0, and still commits that variables.sh.
 		v.OrdererIndices = []int{0}
 	}
+	return v, nil
+}
+
+// check reports a topology that lacks a value the commands need.
+func (v *Vars) check(path string) error {
 	switch {
 	case v.DomainName == "":
-		return nil, fmt.Errorf("%s: no DOMAIN_NAME", path)
+		return fmt.Errorf("%s: no domain name", path)
 	case len(v.OrgIndices) == 0 || len(v.PeerIndices) == 0:
-		return nil, fmt.Errorf("%s: no ORG_INDICES or PEER_INDICES", path)
+		return fmt.Errorf("%s: no org or peer indices", path)
+	case len(v.OrdererIndices) == 0:
+		return fmt.Errorf("%s: no orderer indices", path)
 	case v.EndorsementPolicy == "":
-		return nil, fmt.Errorf("%s: no ENDORSEMENT_POLICY", path)
+		return fmt.Errorf("%s: no endorsement policy", path)
 	}
-	return v, nil
+	return nil
 }
 
 // Org is the name of org i: org<i>.<domain>.

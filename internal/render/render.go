@@ -1,5 +1,5 @@
-// Package render writes the network template: the config files, compose
-// files and scripts that `generate` puts in the project directory.
+// Package render writes the network template: the config files and compose
+// files that `generate` puts in the project directory.
 //
 // The templates are Go text/template ports of the Python builder's Jinja2
 // templates. Consumers commit the rendered files, and substrate edits
@@ -7,7 +7,8 @@
 // byte-identical to the Python builder's: the golden tests in this package
 // were rendered by it. The template data keeps the Jinja variable names
 // (DOMAIN_NAME, ORG_INDICES, ...) so a template diff against the old .j2
-// file stays readable.
+// file stays readable. The topology file (network.File) is the one file the
+// Python builder did not write.
 package render
 
 import (
@@ -23,6 +24,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/luthersystems/fabric-network-builder/internal/network"
 	"github.com/luthersystems/fabric-network-builder/internal/topology"
 )
 
@@ -30,7 +32,7 @@ import (
 var templates embed.FS
 
 // Dirs are the directories the template creates, in creation order.
-var Dirs = []string{"base", "chaincodes", "couchdb", "scripts"}
+var Dirs = []string{"base", "chaincodes", "couchdb"}
 
 // Rendered are the templated files, in the Python builder's order.
 var Rendered = []string{
@@ -41,40 +43,15 @@ var Rendered = []string{
 	"docker-compose-cli.yaml",
 	"docker-compose-couch.yaml",
 	"base/docker-compose-base.yaml",
-	"scripts/variables.sh",
 	"collections.json",
 	"core.yaml",
 }
 
-// Copied are the files written as they are. The scripts run in the cli
-// container (init.sh) or on the consumer's host (env.sh), and consumers
-// call them directly, so they stay in the template although the builder no
-// longer runs them itself.
+// Copied are the files written as they are. The v0.0.x scripts/*.sh are
+// no longer written (#35): the builder's own commands replaced them.
 var Copied = []string{
 	"base/peer-base.yaml",
 	"couchdb/local.ini",
-	"scripts/channel.sh",
-	"scripts/create_channel.sh",
-	"scripts/init.sh",
-	"scripts/install.sh",
-	"scripts/generatecc.sh",
-	"scripts/env.sh",
-	"scripts/join_channel.sh",
-	"scripts/luther_utils.sh",
-}
-
-// Executable are the copied files that get mode 0755. luther_utils.sh is
-// sourced, not run, so the Python builder left it out of its chmod list;
-// it was still executable because the template file was.
-var Executable = map[string]bool{
-	"scripts/channel.sh":        true,
-	"scripts/create_channel.sh": true,
-	"scripts/init.sh":           true,
-	"scripts/install.sh":        true,
-	"scripts/generatecc.sh":     true,
-	"scripts/env.sh":            true,
-	"scripts/join_channel.sh":   true,
-	"scripts/luther_utils.sh":   true,
 }
 
 var funcs = template.FuncMap{
@@ -188,13 +165,35 @@ func Network(n *topology.Network) ([]File, error) {
 		if err != nil {
 			return nil, err
 		}
-		mode := fs.FileMode(0o644)
-		if Executable[name] {
-			mode = 0o755
-		}
-		files = append(files, File{Path: name, Content: b, Mode: mode})
+		files = append(files, File{Path: name, Content: b, Mode: 0o644})
 	}
+	b, err := topologyFile(n)
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, File{Path: network.File, Content: b, Mode: 0o644})
 	return files, nil
+}
+
+// topologyFile is the content of network.File for n.
+func topologyFile(n *topology.Network) ([]byte, error) {
+	v := network.Vars{DomainName: n.DomainName, EndorsementPolicy: n.EndorsementPolicy}
+	for _, o := range n.Orderers {
+		v.OrdererIndices = append(v.OrdererIndices, o.Index)
+	}
+	for _, idx := range []struct {
+		dst *[]int
+		src []string
+	}{{&v.OrgIndices, n.OrgIndices()}, {&v.PeerIndices, n.PeerIndices}} {
+		for _, s := range idx.src {
+			i, err := strconv.Atoi(s)
+			if err != nil {
+				return nil, fmt.Errorf("index %q: %w", s, err)
+			}
+			*idx.dst = append(*idx.dst, i)
+		}
+	}
+	return v.JSON()
 }
 
 // CCaaSService is one chaincode-as-a-service compose service.
