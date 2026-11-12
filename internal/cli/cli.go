@@ -123,8 +123,17 @@ func exists(p string) bool {
 	return err == nil
 }
 
-// archiveNames are the paths a --archive tar.xz holds.
-var archiveNames = []string{"crypto-config", "crypto-config.yaml", "configtx.yaml", "channel-artifacts", network.File}
+// archiveNames are the paths a --archive tar.xz of the network in dir
+// holds. A network that a builder before #35 generated (extend --archive)
+// has no network.File; its topology is in scripts/, which goes in as
+// before, so `up` can read the unpacked archive.
+func archiveNames(dir string) []string {
+	topo := network.File
+	if !exists(filepath.Join(dir, topo)) && exists(filepath.Join(dir, "scripts")) {
+		topo = "scripts"
+	}
+	return []string{"crypto-config", "crypto-config.yaml", "configtx.yaml", "channel-artifacts", topo}
+}
 
 // cryptoAssets are the paths --chown changes after cryptogen.
 var cryptoAssets = []string{"crypto-config", "channel-artifacts", "docker-compose-e2e.yaml"}
@@ -165,7 +174,7 @@ func (e *env) inArchive(dest string, f func() error) error {
 	if err != nil {
 		return err
 	}
-	if err := writeArchive(tmp, dest, archiveNames); err != nil {
+	if err := writeArchive(tmp, dest, archiveNames(tmp)); err != nil {
 		return err
 	}
 	e.printf("wrote %s\n", dest)
@@ -264,7 +273,7 @@ func (e *env) extend() error {
 	// The Python builder extended an empty temporary directory, which
 	// always failed: there was no crypto-config to extend. Archive the
 	// extended network instead.
-	if err := writeArchive(e.dir, dest, archiveNames); err != nil {
+	if err := writeArchive(e.dir, dest, archiveNames(e.dir)); err != nil {
 		return err
 	}
 	e.printf("wrote %s\n", dest)

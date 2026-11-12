@@ -103,11 +103,17 @@ done
 # fabric-tools container of its own on the network's Docker network.
 # Fabric 3 publishes no fabric-tools image; osnadmin 2.5 speaks the same
 # channel participation API.
-compose_net=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' orderer0.luther.systems)
+compose_net=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' orderer0.luther.systems | awk '{print $1}')
+# The tools tag as the builder picks it: the Fabric tag on 2.x, else the
+# default 2.x release of common.config.mk.
+case "${fabric_tag}" in
+  2.*) tools_tag=${fabric_tag} ;;
+  *) tools_tag=$(sed -n 's/^FABRIC_VERSION=//p' "${repo}/common.config.mk") ;;
+esac
 osnadmin_list() {
   local admin=/crypto-config/ordererOrganizations/luther.systems/users/Admin@luther.systems/tls
   docker run --rm --network "${compose_net}" -v "${work}/crypto-config:/crypto-config:ro" \
-    "${FNB_SMOKE_IMAGENS:-hyperledger}/fabric-tools:2.5.16" \
+    "${FNB_SMOKE_IMAGENS:-hyperledger}/fabric-tools:${tools_tag}" \
     osnadmin channel list --channelID "${channel}" \
     -o orderer0.luther.systems:7053 \
     --ca-file /crypto-config/ordererOrganizations/luther.systems/orderers/orderer0.luther.systems/msp/tlscacerts/tlsca.luther.systems-cert.pem \
