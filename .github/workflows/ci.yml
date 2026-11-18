@@ -13,7 +13,38 @@ on:
   merge_group:
 
 jobs:
+  # Decides whether the build and test jobs must run (scripts/ci-changes.sh).
+  # No paths filter on the workflow: the gate below is a required check, so
+  # every PR must start a run. A docs-only PR skips the jobs instead.
+  changes:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.decide.outputs.code }}
+    steps:
+      # On a pull request this checks out the merge commit. Its first parent
+      # is the base branch tip, so depth 2 is enough for the diff.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Test the decision script and the gate's needs list
+        run: bash scripts/ci-changes-test.sh
+      # Only a pull request may skip. Any other event (push, merge group)
+      # runs everything.
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            bash scripts/ci-changes.sh HEAD^1 HEAD | tee -a "$GITHUB_OUTPUT"
+          else
+            bash scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
+          fi
+
   test:
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     name: Go tests and lint
     runs-on: ubuntu-22.04
     steps:
@@ -38,6 +69,8 @@ jobs:
         run: golangci-lint config verify
 
   build:
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -57,6 +90,8 @@ jobs:
   # no system channel, so the same config runs on 2.5 and 3.x
   # (luthersystems/substrate#1034).
   network:
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     name: Network (Fabric ${{ matrix.fabric }}${{ matrix.imagens && format(', {0}', matrix.imagens) || '' }})
     runs-on: ubuntu-22.04
     strategy:
@@ -106,6 +141,8 @@ jobs:
   # ko has no Dockerfile, so the kit is given here. Keep it at the buildenv
   # release of the base image in .ko.yaml.
   trust-store:
+    needs: changes
+    if: needs.changes.outputs.code != 'false'
     name: Trust store (${{ matrix.platform }})
     runs-on: ubuntu-22.04
     strategy:
@@ -143,26 +180,34 @@ jobs:
         timeout-minutes: 5
 
   # The one check main's ruleset requires for this workflow
-  # (common-infrastructure github-org-admin/main_protection.json). Requiring
-  # each job by name does not work here: matrix jobs get one check per entry,
-  # so the list in the ruleset would drift each time the matrix changes. This
-  # job fails when any job above failed or was cancelled, and passes when they
-  # passed or were skipped, as a skipped required check does.
-  # `always()`, not `!cancelled()`: a cancelled run must fail this check. With
-  # `!cancelled()` the job is skipped, and GitHub counts a skipped required
-  # check as passed.
+  # (common-infrastructure github-org-admin/main_protection.json). One gate
+  # instead of each job by name: matrix jobs get one check per entry, and a
+  # list of names in the ruleset would drift with the workflow.
+  # always(), not !cancelled(): a cancelled run must fail this check. A gate
+  # that is skipped counts as passed for a required check.
+  # scripts/ci-changes-test.sh fails when a job is missing from needs.
   ci-all:
     name: CI (all required checks)
-    if: ${{ always() }}
-    needs: [test, build, network, trust-store]
+    if: always()
+    needs: [changes, test, build, network, trust-store]
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
-      - name: Fail if a needed job failed or was cancelled
-        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+      # Pass only if the changes job succeeded and every other job succeeded,
+      # or was skipped because the changes job said the PR is docs-only
+      # (code=false). Any other skip fails, so a job skipped by mistake
+      # cannot pass the gate.
+      - name: Fail unless every required job passed
+        if: >-
+          needs.changes.result != 'success'
+          || contains(needs.*.result, 'failure')
+          || contains(needs.*.result, 'cancelled')
+          || (needs.changes.outputs.code != 'false' && contains(needs.*.result, 'skipped'))
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
           echo "$NEEDS_JSON"
-          echo "::error::A job this check needs failed or was cancelled."
+          echo "::error::A required CI job failed, was cancelled or was skipped."
           exit 1
+      - name: Every required job passed or was skipped as docs-only
+        run: echo "ok"
